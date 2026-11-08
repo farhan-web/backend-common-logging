@@ -1,0 +1,27 @@
+# Explicit opt-in only. Do not use the local fault simulator against external services.
+insurance:
+  demo:
+    enabled: false
+  integrations:
+    core-url: ${CORE_INSURANCE_URL}
+    notification-url: ${NOTIFICATION_URL}
+    s3:
+      mode: aws
+      region: ${AWS_REGION}
+      bucket: ${S3_BUCKET}
+
+backend:
+  common:
+    logging:
+      environment: external
+      payload-enabled: false
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  otlp:
+    tracing:
+      export:
+        enabled: ${OTEL_EXPORT_ENABLED:false}
+      endpoint: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}

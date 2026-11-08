@@ -1,0 +1,88 @@
+server:
+  address: 127.0.0.1
+  port: 8080
+
+spring:
+  application:
+    name: insurance-crud
+  datasource:
+    url: jdbc:h2:mem:insurance;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+      settings:
+        web-allow-others: false
+  mvc:
+    log-request-details: false
+
+backend:
+  common:
+    logging:
+      application: ${spring.application.name}
+      environment: local
+      application-package: com.example.insurance
+      enabled: true
+      web-enabled: true
+      operation-enabled: true
+      payload-enabled: true
+      structured-arguments-enabled: true
+      payload-paths:
+        - /api/policies
+        - /api/policies/*
+        - /api/claims
+        - /api/claims/*
+        - /api/claims/*/reconcile
+      trace-id-header: X-Trace-ID
+      propagation-hosts:
+        - 127.0.0.1
+        - localhost
+      max-depth: 6
+      max-items: 50
+      max-string: 1024
+      max-payload-bytes: 16384
+      max-frames: 64
+
+logging:
+  structured:
+    format:
+      console: logstash
+  level:
+    org.hibernate.engine.jdbc.spi.SqlExceptionHelper: "OFF"
+
+insurance:
+  demo:
+    enabled: true
+    port: 9090
+  integrations:
+    core-url: ${CORE_INSURANCE_URL:http://127.0.0.1:9090/core}
+    notification-url: ${NOTIFICATION_URL:http://127.0.0.1:9090}
+    connect-timeout: 1s
+    read-timeout: 750ms
+    s3:
+      mode: local
+      region: us-east-1
+      bucket: insurance-documents
+
+management:
+  tracing:
+    sampling:
+      probability: 1.0
+    propagation:
+      type: w3c
+  otlp:
+    tracing:
+      export:
+        enabled: false
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics

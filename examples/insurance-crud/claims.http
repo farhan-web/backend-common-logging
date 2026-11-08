@@ -1,0 +1,91 @@
+@api = http://localhost:8080
+@simulator = http://127.0.0.1:9090
+
+### 1. Seed polis aktif (409 jika sudah dibuat; lanjutkan)
+POST {{api}}/api/policies
+Content-Type: application/json
+
+{"policyNumber":"POL-COMPLEX-123456","holderName":"Demo Holder","holderEmail":"holder@example.test","premium":100.00,"status":"ACTIVE"}
+
+### 2. Submit sukses — ganti key untuk pengajuan baru
+POST {{api}}/api/claims
+Content-Type: application/json
+Idempotency-Key: demo-success-001
+
+{"policyNumber":"POL-COMPLEX-123456","amount":1000.00,"claimantEmail":"claimant@example.test","description":"Synthetic diagnosis: never logged","contentType":"text/plain","documentBase64":"ZGVtby1kb2N1bWVudA=="}
+
+> {% client.global.set("claimId", response.body.id); %}
+
+### 3. Lihat state klaim
+GET {{api}}/api/claims/{{claimId}}
+
+### 4. Core menerima lalu menunda respons sampai timeout (rule sekali)
+POST {{simulator}}/__demo/faults
+Content-Type: application/json
+
+{"operation":"core.submit","fault":"TIMEOUT_AFTER_ACCEPT"}
+
+### 5. Submit — 202 PENDING_RECONCILIATION; dokumen tidak dihapus
+POST {{api}}/api/claims
+Content-Type: application/json
+Idempotency-Key: demo-timeout-001
+
+{"policyNumber":"POL-COMPLEX-123456","amount":1000.00,"claimantEmail":"claimant@example.test","description":"Synthetic diagnosis: never logged","contentType":"text/plain","documentBase64":"ZGVtby1kb2N1bWVudA=="}
+
+> {% client.global.set("pendingClaimId", response.body.id); %}
+
+### 6. Lookup core tanpa submit ulang — SUBMITTED
+POST {{api}}/api/claims/{{pendingClaimId}}/reconcile
+
+### 7. Core menolak sesudah upload
+POST {{simulator}}/__demo/faults
+Content-Type: application/json
+
+{"operation":"core.submit","fault":"REJECT"}
+
+### 8. Submit — 422, dokumen dihapus sebagai kompensasi
+POST {{api}}/api/claims
+Content-Type: application/json
+Idempotency-Key: demo-rejected-001
+
+{"policyNumber":"POL-COMPLEX-123456","amount":1000.00,"claimantEmail":"claimant@example.test","description":"Synthetic diagnosis: never logged","contentType":"text/plain","documentBase64":"ZGVtby1kb2N1bWVudA=="}
+
+### 9a. Upload menulis object lalu error
+POST {{simulator}}/__demo/faults
+Content-Type: application/json
+
+{"operation":"s3.put","fault":"ERROR_AFTER_WRITE"}
+
+### 9b. Cleanup juga gagal
+POST {{simulator}}/__demo/faults
+Content-Type: application/json
+
+{"operation":"s3.delete","fault":"UNAVAILABLE"}
+
+### 10. Submit — 503, state COMPENSATION_REQUIRED tersimpan, kedua error tercatat
+POST {{api}}/api/claims
+Content-Type: application/json
+Idempotency-Key: demo-cleanup-failed-001
+
+{"policyNumber":"POL-COMPLEX-123456","amount":1000.00,"claimantEmail":"claimant@example.test","description":"Synthetic diagnosis: never logged","contentType":"text/plain","documentBase64":"ZGVtby1kb2N1bWVudA=="}
+
+### 11. Notifikasi gagal sekali
+POST {{simulator}}/__demo/faults
+Content-Type: application/json
+
+{"operation":"notification.send","fault":"UNAVAILABLE"}
+
+### 12. Submit — klaim tetap SUBMITTED, notification PENDING
+POST {{api}}/api/claims
+Content-Type: application/json
+Idempotency-Key: demo-notification-001
+
+{"policyNumber":"POL-COMPLEX-123456","amount":1000.00,"claimantEmail":"claimant@example.test","description":"Synthetic diagnosis: never logged","contentType":"text/plain","documentBase64":"ZGVtby1kb2N1bWVudA=="}
+
+> {% client.global.set("notificationClaimId", response.body.id); %}
+
+### 13. Retry notifikasi melalui reconcile
+POST {{api}}/api/claims/{{notificationClaimId}}/reconcile
+
+### 14. Jumlah side effects dan trace ID yang diterima simulator
+GET {{simulator}}/__demo/state

@@ -1,0 +1,221 @@
+@baseUrl = http://localhost:8080
+@simulatorUrl = http://127.0.0.1:9090
+@complexPolicyNumber = POL-COMPLEX-123456
+//Ganti complexRun untuk mengulang skenario baru; key yang sama melakukan replay.
+@complexRun = 001
+
+### Create — simpan ID dari response untuk request berikutnya
+POST {{baseUrl}}/api/policies
+Content-Type: application/json
+
+{
+  "policyNumber": "POL-2026-123456",
+  "holderName": "Budi Santoso",
+  "holderEmail": "budi@example.test",
+  "premium": 1250000.50,
+  "status": "ACTIVE"
+}
+
+> {% client.global.set("policyId", response.body.id); %}
+
+### List
+GET {{baseUrl}}/api/policies
+
+### Detail
+GET {{baseUrl}}/api/policies/{{policyId}}
+
+### Update
+PUT {{baseUrl}}/api/policies/{{policyId}}
+Content-Type: application/json
+
+{
+  "policyNumber": "POL-2026-123456",
+  "holderName": "Siti Aminah",
+  "holderEmail": "siti@example.test",
+  "premium": 1500000.00,
+  "status": "INACTIVE"
+}
+
+### Validasi gagal — 400
+POST {{baseUrl}}/api/policies
+Content-Type: application/json
+
+{
+  "policyNumber": "POL-INVALID",
+  "holderName": "",
+  "holderEmail": "not-an-email",
+  "premium": -10,
+  "status": "ACTIVE"
+}
+
+### Delete — 204
+DELETE {{baseUrl}}/api/policies/{{policyId}}
+
+### Sesudah delete — 404
+GET {{baseUrl}}/api/policies/{{policyId}}
+
+# ============================================================
+# FLOW KLAIM KOMPLEKS: H2 -> CORE INSURANCE -> S3 -> NOTIFIKASI
+# Jalankan berurutan, mulai seed polis di bawah (terpisah dari CRUD di atas).
+# Fault hanya berlaku sekali; pasang fault tepat sebelum submit skenario terkait.
+# Simulator default port 9090; sesuaikan simulatorUrl bila port diubah.
+# Semua payload di sini sintetis. Description/Base64 tidak dicatat ke log.
+# ============================================================
+
+### Kompleks 1. Seed polis aktif (409 jika sudah dibuat; lanjutkan)
+POST {{baseUrl}}/api/policies
+Content-Type: application/json
+
+{
+  "policyNumber": "{{complexPolicyNumber}}",
+  "holderName": "Demo Holder",
+  "holderEmail": "holder@example.test",
+  "premium": 100.0,
+  "status": "ACTIVE"
+}
+
+### Kompleks 2. Submit sukses — ganti key untuk pengajuan baru
+POST {{baseUrl}}/api/claims
+Content-Type: application/json
+Idempotency-Key: requests-{{complexRun}}-success
+
+{
+  "policyNumber": "{{complexPolicyNumber}}",
+  "amount": 1000.0,
+  "claimantEmail": "claimant@example.test",
+  "description": "Synthetic diagnosis: never logged",
+  "contentType": "text/plain",
+  "documentBase64": "ZGVtby1kb2N1bWVudA=="
+}
+
+> {% client.global.set("complexClaimId", response.body.id); %}
+
+### Kompleks 3. Lihat state klaim
+GET {{baseUrl}}/api/claims/{{complexClaimId}}
+
+### Kompleks 4. Core menerima lalu menunda respons sampai timeout (rule sekali)
+POST {{simulatorUrl}}/__demo/faults
+Content-Type: application/json
+
+{
+  "operation": "core.submit",
+  "fault": "TIMEOUT_AFTER_ACCEPT"
+}
+
+### Kompleks 5. Submit — 202 PENDING_RECONCILIATION; dokumen tidak dihapus
+POST {{baseUrl}}/api/claims
+Content-Type: application/json
+Idempotency-Key: requests-{{complexRun}}-timeout
+
+{
+  "policyNumber": "{{complexPolicyNumber}}",
+  "amount": 1000.0,
+  "claimantEmail": "claimant@example.test",
+  "description": "Synthetic diagnosis: never logged",
+  "contentType": "text/plain",
+  "documentBase64": "ZGVtby1kb2N1bWVudA=="
+}
+
+> {% client.global.set("complexPendingClaimId", response.body.id); %}
+
+### Kompleks 6. Lookup core tanpa submit ulang — SUBMITTED
+POST {{baseUrl}}/api/claims/{{complexPendingClaimId}}/reconcile
+
+### Kompleks 7. Core menolak sesudah upload
+POST {{simulatorUrl}}/__demo/faults
+Content-Type: application/json
+
+{
+  "operation": "core.submit",
+  "fault": "REJECT"
+}
+
+### Kompleks 8. Submit — 422, dokumen dihapus sebagai kompensasi
+POST {{baseUrl}}/api/claims
+Content-Type: application/json
+Idempotency-Key: requests-{{complexRun}}-rejected
+
+{
+  "policyNumber": "{{complexPolicyNumber}}",
+  "amount": 1000.0,
+  "claimantEmail": "claimant@example.test",
+  "description": "Synthetic diagnosis: never logged",
+  "contentType": "text/plain",
+  "documentBase64": "ZGVtby1kb2N1bWVudA=="
+}
+
+### Kompleks 9a. Upload menulis object lalu error
+POST {{simulatorUrl}}/__demo/faults
+Content-Type: application/json
+
+{
+  "operation": "s3.put",
+  "fault": "ERROR_AFTER_WRITE"
+}
+
+### Kompleks 9b. Cleanup juga gagal
+POST {{simulatorUrl}}/__demo/faults
+Content-Type: application/json
+
+{
+  "operation": "s3.delete",
+  "fault": "UNAVAILABLE"
+}
+
+### Kompleks 10. Submit — 503, state COMPENSATION_REQUIRED tersimpan, kedua error tercatat
+POST {{baseUrl}}/api/claims
+Content-Type: application/json
+Idempotency-Key: requests-{{complexRun}}-cleanup-failed
+
+{
+  "policyNumber": "{{complexPolicyNumber}}",
+  "amount": 1000.0,
+  "claimantEmail": "claimant@example.test",
+  "description": "Synthetic diagnosis: never logged",
+  "contentType": "text/plain",
+  "documentBase64": "ZGVtby1kb2N1bWVudA=="
+}
+
+### Kompleks 11. Notifikasi gagal sekali
+POST {{simulatorUrl}}/__demo/faults
+Content-Type: application/json
+
+{
+  "operation": "notification.send",
+  "fault": "UNAVAILABLE"
+}
+
+### Kompleks 12. Submit — klaim tetap SUBMITTED, notification PENDING
+POST {{baseUrl}}/api/claims
+Content-Type: application/json
+Idempotency-Key: requests-{{complexRun}}-notification
+
+{
+  "policyNumber": "{{complexPolicyNumber}}",
+  "amount": 1000.0,
+  "claimantEmail": "claimant@example.test",
+  "description": "Synthetic diagnosis: never logged",
+  "contentType": "text/plain",
+  "documentBase64": "ZGVtby1kb2N1bWVudA=="
+}
+
+> {% client.global.set("complexNotificationClaimId", response.body.id); %}
+
+### Kompleks 13. Retry notifikasi melalui reconcile
+POST {{baseUrl}}/api/claims/{{complexNotificationClaimId}}/reconcile
+
+### Kompleks 14. Jumlah side effects dan trace ID yang diterima simulator
+GET {{simulatorUrl}}/__demo/state
+
+### Trace context upstream — traceId dipertahankan, request mendapat spanId baru
+# Jalankan dua kali: trace sama karena upstream header eksplisit, server span tetap berbeda.
+# Request normal di atas tidak mengirim header ini: backend membuat traceId baru setiap request.
+GET {{baseUrl}}/api/policies
+traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+
+> {%
+  client.test("Trace upstream diteruskan", function () {
+    client.assert(response.headers.valueOf("X-Trace-ID") === "4bf92f3577b34da6a3ce929d0e0e4736");
+    client.assert(/^[0-9a-f]{16}$/.test(response.headers.valueOf("X-Span-ID")));
+  });
+%}
