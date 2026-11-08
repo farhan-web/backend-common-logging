@@ -1,12 +1,13 @@
 package com.example.insurance.policy;
 
-import jakarta.validation.Valid;
-import jakarta.validation.constraints.Positive;
 import java.net.URI;
+import javax.validation.Valid;
+import javax.validation.constraints.Positive;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
+@org.springframework.validation.annotation.Validated
 @RequestMapping("/api/policies")
 public class PolicyController {
   private final PolicyService service;

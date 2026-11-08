@@ -62,13 +62,13 @@ class EnterpriseLoggingTest {
   void frameworkSpanIsReusedAndChildrenAreActuallyExported() throws Exception {
     Span server =
         runtime.tracer().spanBuilder("framework.server").setSpanKind(SpanKind.SERVER).startSpan();
-    try (var scope = server.makeCurrent()) {
+    try (io.opentelemetry.context.Scope scope = server.makeCurrent()) {
       new TraceFilter(writer, new LoggingProperties(), runtime)
           .doFilter(
               new MockHttpServletRequest(),
               new MockHttpServletResponse(),
               (req, res) -> {
-                try (var operation = log.start("claim.save")) {
+                try (io.github.commonlogging.api.LogOperation operation = log.start("claim.save")) {
                   operation.end();
                 }
               });
@@ -78,10 +78,14 @@ class EnterpriseLoggingTest {
     } finally {
       server.end();
     }
-    var spans = exporter.getFinishedSpanItems();
+    java.util.List<io.opentelemetry.sdk.trace.data.SpanData> spans =
+        exporter.getFinishedSpanItems();
     assertThat(spans).hasSize(2);
-    var child =
-        spans.stream().filter(s -> s.getName().equals("claim.save")).findFirst().orElseThrow();
+    io.opentelemetry.sdk.trace.data.SpanData child =
+        spans.stream()
+            .filter(s -> s.getName().equals("claim.save"))
+            .findFirst()
+            .orElseThrow(java.util.NoSuchElementException::new);
     assertThat(child.getParentSpanId()).isEqualTo(server.getSpanContext().getSpanId());
     assertThat(child.getTraceId()).isEqualTo(server.getSpanContext().getTraceId());
     assertThat(spans.stream().filter(s -> s.getKind() == SpanKind.SERVER)).hasSize(1);
@@ -89,10 +93,10 @@ class EnterpriseLoggingTest {
 
   @Test
   void errorSpansCarryTypeWithoutSensitiveExceptionMessage() {
-    try (var op = log.start("claim.fail")) {
+    try (io.github.commonlogging.api.LogOperation op = log.start("claim.fail")) {
       op.fail(new NullPointerException("private medical record"));
     }
-    var span = exporter.getFinishedSpanItems().get(0);
+    io.opentelemetry.sdk.trace.data.SpanData span = exporter.getFinishedSpanItems().get(0);
     assertThat(span.getStatus().getStatusCode()).isEqualTo(StatusCode.ERROR);
     assertThat(span.getEvents()).isEmpty();
     assertThat(span.toString()).doesNotContain("private medical record");
@@ -100,12 +104,56 @@ class EnterpriseLoggingTest {
   }
 
   @LogPayload
-  record Classified(@LogValue String product, String newlyAddedSecret) {}
+  static final class Classified {
+    private final @LogValue String product;
+    private final String newlyAddedSecret;
+
+    @com.fasterxml.jackson.annotation.JsonCreator
+    public Classified(
+        @com.fasterxml.jackson.annotation.JsonProperty("product") String product,
+        @com.fasterxml.jackson.annotation.JsonProperty("newlyAddedSecret")
+            String newlyAddedSecret) {
+
+      this.product = product;
+      this.newlyAddedSecret = newlyAddedSecret;
+    }
+
+    public String product() {
+      return product;
+    }
+
+    public String getProduct() {
+      return product;
+    }
+
+    public String newlyAddedSecret() {
+      return newlyAddedSecret;
+    }
+
+    public String getNewlyAddedSecret() {
+      return newlyAddedSecret;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      if (this == other) return true;
+      if (other == null || getClass() != other.getClass()) return false;
+      Classified that = (Classified) other;
+      return java.util.Objects.equals(product, that.product)
+          && java.util.Objects.equals(newlyAddedSecret, that.newlyAddedSecret);
+    }
+
+    @Override
+    public int hashCode() {
+      return java.util.Objects.hash(product, newlyAddedSecret);
+    }
+  }
 
   @Test
   void newUnclassifiedFieldIsAbsentAndDtoIsUnchanged() {
-    var dto = new Classified("motor", "private-value");
-    var result = payloads.serialize(dto);
+    com.company.pilot.EnterpriseLoggingTest.Classified dto =
+        new Classified("motor", "private-value");
+    io.github.commonlogging.payload.PayloadResult result = payloads.serialize(dto);
     assertThat(result.payload().path("product").asText()).isEqualTo("motor");
     assertThat(result.payload().has("newlyAddedSecret")).isFalse();
     assertThat(dto.newlyAddedSecret()).isEqualTo("private-value");
@@ -127,12 +175,13 @@ class EnterpriseLoggingTest {
 
   @Test
   void multipleScalarParametersRespectStricterInterfaceRules() {
-    var factory = new AspectJProxyFactory(new Service());
+    org.springframework.aop.aspectj.annotation.AspectJProxyFactory factory =
+        new AspectJProxyFactory(new Service());
     factory.setProxyTargetClass(true);
     factory.addAspect(new LoggedOperationAspect(log, payloads));
     Service service = factory.getProxy();
     assertThat(service.apply("private-identity", true, "private-token")).isTrue();
-    var args = events.get(0).path("payload").path("arguments");
+    com.fasterxml.jackson.databind.JsonNode args = events.get(0).path("payload").path("arguments");
     assertThat(args).hasSize(2);
     assertThat(args.get(0).path("value").asText()).isEqualTo("***");
     assertThat(args.get(1).path("value").asBoolean()).isTrue();
@@ -143,12 +192,12 @@ class EnterpriseLoggingTest {
   @Test
   void sequentialJobOperationsStayInOneRealTrace() {
     String trace;
-    try (var job = log.withTrace(null)) {
+    try (io.github.commonlogging.api.TraceScope job = log.withTrace(null)) {
       trace = log.traceId();
-      try (var first = log.start("job.first")) {
+      try (io.github.commonlogging.api.LogOperation first = log.start("job.first")) {
         first.end();
       }
-      try (var second = log.start("job.second")) {
+      try (io.github.commonlogging.api.LogOperation second = log.start("job.second")) {
         second.end();
       }
     }
@@ -174,7 +223,8 @@ class EnterpriseLoggingTest {
 
   @Test
   void genericBridgeCannotBypassExcludedParameterOrMatchAnUnrelatedOverload() {
-    var factory = new AspectJProxyFactory(new GenericService());
+    org.springframework.aop.aspectj.annotation.AspectJProxyFactory factory =
+        new AspectJProxyFactory(new GenericService());
     factory.setProxyTargetClass(true);
     factory.addAspect(new LoggedOperationAspect(log, payloads));
     GenericService service = factory.getProxy();
@@ -198,7 +248,8 @@ class EnterpriseLoggingTest {
 
   @Test
   void interfaceResultMaskCannotBeWeakenedByImplementation() {
-    var factory = new AspectJProxyFactory(new ResultService());
+    org.springframework.aop.aspectj.annotation.AspectJProxyFactory factory =
+        new AspectJProxyFactory(new ResultService());
     factory.setProxyTargetClass(true);
     factory.addAspect(new LoggedOperationAspect(log, payloads));
     ResultService service = factory.getProxy();
@@ -209,9 +260,9 @@ class EnterpriseLoggingTest {
 
   @Test
   void loggingFailureIncrementsBoundedMetricAndPreservesBusinessExecution() {
-    var registry = new SimpleMeterRegistry();
+    io.micrometer.core.instrument.simple.SimpleMeterRegistry registry = new SimpleMeterRegistry();
     health.bindTo(registry);
-    var broken =
+    io.github.commonlogging.internal.StructuredEventWriter broken =
         new StructuredEventWriter(
             (level, json) -> {
               throw new IllegalStateException("sink unavailable");
@@ -219,7 +270,8 @@ class EnterpriseLoggingTest {
             writer.options(),
             payloads,
             health);
-    try (var op = new TLog(broken, runtime).start("claim.save")) {
+    try (io.github.commonlogging.api.LogOperation op =
+        new TLog(broken, runtime).start("claim.save")) {
       op.end();
     }
     assertThat(health.droppedEvents()).isEqualTo(2);

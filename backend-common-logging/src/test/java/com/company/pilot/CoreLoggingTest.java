@@ -37,9 +37,10 @@ class CoreLoggingTest {
   @Test
   void nestedLifecycleAndAutomaticCaller() {
     TLog log = new TLog(writer(true));
-    try (var request = LogContext.open("19f1064b619d49d35392eac7261cd726")) {
-      try (var parent = log.start("claim.submit")) {
-        try (var child = log.start("policy.lookup")) {
+    try (io.github.commonlogging.internal.LogContext.Scope request =
+        LogContext.open("19f1064b619d49d35392eac7261cd726")) {
+      try (io.github.commonlogging.api.LogOperation parent = log.start("claim.submit")) {
+        try (io.github.commonlogging.api.LogOperation child = log.start("policy.lookup")) {
           child.end();
           child.end();
         }
@@ -66,7 +67,7 @@ class CoreLoggingTest {
 
   @Test
   void failureContextSurvivesOperationUnwindAndNeverPrintsExceptionMessage() {
-    var w = writer(true);
+    io.github.commonlogging.internal.StructuredEventWriter w = writer(true);
     TLog log = new TLog(w);
     TExceptionLog errors = new TExceptionLog(w, e -> new ErrorDetails("INTERNAL", "BUG", false));
     RuntimeException cause;
@@ -76,8 +77,9 @@ class CoreLoggingTest {
       cause = e;
     }
     RuntimeException wrapped = new IllegalStateException("private medical data", cause);
-    try (var request = LogContext.open("6fc63565247226593c49a36e9da488e6")) {
-      try (var operation = log.start("claim.submit")) {
+    try (io.github.commonlogging.internal.LogContext.Scope request =
+        LogContext.open("6fc63565247226593c49a36e9da488e6")) {
+      try (io.github.commonlogging.api.LogOperation operation = log.start("claim.submit")) {
         operation.fail(wrapped);
       }
       errors.error("request", wrapped);
@@ -99,7 +101,7 @@ class CoreLoggingTest {
   @Test
   void omittedTerminalIsNotSuccessAndCloseIsIdempotent() {
     TLog log = new TLog(writer(true));
-    var operation = log.start("claim.submit");
+    io.github.commonlogging.api.LogOperation operation = log.start("claim.submit");
     operation.close();
     operation.close();
     assertThat(events).hasSize(2);
@@ -109,11 +111,11 @@ class CoreLoggingTest {
   @Test
   void disabledAndThrowingSinkDoNotAffectResult() {
     TLog disabled = new TLog(writer(false));
-    try (var op = disabled.start("test")) {
+    try (io.github.commonlogging.api.LogOperation op = disabled.start("test")) {
       op.end();
     }
     assertThat(events).isEmpty();
-    var w =
+    io.github.commonlogging.internal.StructuredEventWriter w =
         new StructuredEventWriter(
             (l, j) -> {
               throw new IllegalStateException("sink failed");
@@ -122,7 +124,7 @@ class CoreLoggingTest {
             new PayloadLogSerializer(new PayloadPolicies(), 2, 2, 8, 128));
     assertThatCode(
             () -> {
-              try (var op = new TLog(w).start("test")) {
+              try (io.github.commonlogging.api.LogOperation op = new TLog(w).start("test")) {
                 op.end();
               }
             })
@@ -134,7 +136,8 @@ class CoreLoggingTest {
     ExecutorService pool = Executors.newSingleThreadExecutor();
     try {
       Runnable captured;
-      try (var request = LogContext.open("e6a6f774877c2886df0b4d0442ac80e4")) {
+      try (io.github.commonlogging.internal.LogContext.Scope request =
+          LogContext.open("e6a6f774877c2886df0b4d0442ac80e4")) {
         captured =
             LogContext.wrap(
                 () ->
@@ -148,7 +151,8 @@ class CoreLoggingTest {
         jobs.add(
             pool.submit(
                 () -> {
-                  try (var scope = LogContext.open(id)) {
+                  try (io.github.commonlogging.internal.LogContext.Scope scope =
+                      LogContext.open(id)) {
                     assertThat(LogContext.traceId()).isEqualTo(id);
                   }
                 }));
@@ -162,13 +166,13 @@ class CoreLoggingTest {
 
   @Test
   void rootCauseOriginSurvivesWrapperFrameBudget() {
-    var w = writer(true);
-    var cause = new NullPointerException("private-data");
+    io.github.commonlogging.internal.StructuredEventWriter w = writer(true);
+    java.lang.NullPointerException cause = new NullPointerException("private-data");
     cause.setStackTrace(
         new StackTraceElement[] {
           new StackTraceElement("com.company.Service", "validate", "Service.java", 87)
         });
-    var wrapper = new RuntimeException(cause);
+    java.lang.RuntimeException wrapper = new RuntimeException(cause);
     StackTraceElement[] wrapperFrames = new StackTraceElement[100];
     Arrays.fill(
         wrapperFrames, new StackTraceElement("vendor.Adapter", "invoke", "Adapter.java", 1));
@@ -180,9 +184,10 @@ class CoreLoggingTest {
 
   @Test
   void expectedRejectionHasNoStackTrace() {
-    var errors =
+    io.github.commonlogging.api.TExceptionLog errors =
         new TExceptionLog(writer(true), e -> new ErrorDetails("BUSINESS", "CLAIM_REJECTED", true));
-    try (var request = LogContext.open("084e990a49ba65e622926853785e0ed0")) {
+    try (io.github.commonlogging.internal.LogContext.Scope request =
+        LogContext.open("084e990a49ba65e622926853785e0ed0")) {
       errors.error("claim.submit", new IllegalArgumentException("PII"));
     }
     assertThat(events.get(0).path("event").asText()).isEqualTo("PROCESS_REJECTED");

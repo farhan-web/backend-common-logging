@@ -2,17 +2,16 @@ package com.example.insurance.integration;
 
 import com.example.insurance.integration.IntegrationDtos.*;
 import io.github.commonlogging.spring.DependencyLogging;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.*;
 
 @Component
 public class CoreInsuranceClient {
-  private final RestClient client;
+  private final RestTemplate client;
   private final DependencyLogging log;
 
   public CoreInsuranceClient(
-      RestClient.Builder builder,
+      org.springframework.boot.web.client.RestTemplateBuilder builder,
       IntegrationEndpoints endpoints,
       IntegrationProperties properties,
       DependencyLogging log) {
@@ -28,13 +27,7 @@ public class CoreInsuranceClient {
         () -> {
           try {
             VerifyResponse response =
-                client
-                    .post()
-                    .uri("/policies/verify")
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(request)
-                    .retrieve()
-                    .body(VerifyResponse.class);
+                client.postForObject("/policies/verify", request, VerifyResponse.class);
             if (response == null
                 || response.coverageLimit() == null
                 || response.coverageLimit().signum() < 0)
@@ -55,13 +48,7 @@ public class CoreInsuranceClient {
         () -> {
           try {
             return validate(
-                client
-                    .post()
-                    .uri("/claims")
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(request)
-                    .retrieve()
-                    .body(CoreClaimResponse.class),
+                client.postForObject("/claims", request, CoreClaimResponse.class),
                 request.externalReference());
           } catch (RestClientException ex) {
             throw HttpIntegrationErrors.translate("CORE_SUBMIT", ex);
@@ -77,11 +64,7 @@ public class CoreInsuranceClient {
         () -> {
           try {
             return validate(
-                client
-                    .get()
-                    .uri("/claims/{id}", externalReference)
-                    .retrieve()
-                    .body(CoreClaimResponse.class),
+                client.getForObject("/claims/{id}", CoreClaimResponse.class, externalReference),
                 externalReference);
           } catch (HttpClientErrorException.NotFound absent) {
             return null;
@@ -94,7 +77,7 @@ public class CoreInsuranceClient {
   private CoreClaimResponse validate(CoreClaimResponse response, String externalReference) {
     if (response == null
         || response.coreClaimId() == null
-        || response.coreClaimId().isBlank()
+        || response.coreClaimId().trim().isEmpty()
         || !externalReference.equals(response.externalReference())
         || !"ACCEPTED".equals(response.status()))
       throw new IntegrationException(

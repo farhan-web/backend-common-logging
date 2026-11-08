@@ -16,9 +16,49 @@ import org.springframework.stereotype.Service;
 @Service
 public class ClaimSubmissionService {
   @io.github.commonlogging.annotation.LogPayload
-  public record Submission(
-      @io.github.commonlogging.annotation.LogValue ClaimResponse claim,
-      @io.github.commonlogging.annotation.LogValue boolean replay) {}
+  public static final class Submission {
+    private final @io.github.commonlogging.annotation.LogValue ClaimResponse claim;
+    private final @io.github.commonlogging.annotation.LogValue boolean replay;
+
+    @com.fasterxml.jackson.annotation.JsonCreator
+    public Submission(
+        @com.fasterxml.jackson.annotation.JsonProperty("claim") ClaimResponse claim,
+        @com.fasterxml.jackson.annotation.JsonProperty("replay") boolean replay) {
+
+      this.claim = claim;
+      this.replay = replay;
+    }
+
+    public ClaimResponse claim() {
+      return claim;
+    }
+
+    public ClaimResponse getClaim() {
+      return claim;
+    }
+
+    public boolean replay() {
+      return replay;
+    }
+
+    public boolean getReplay() {
+      return replay;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      if (this == other) return true;
+      if (other == null || getClass() != other.getClass()) return false;
+      Submission that = (Submission) other;
+      return java.util.Objects.equals(claim, that.claim)
+          && java.util.Objects.equals(replay, that.replay);
+    }
+
+    @Override
+    public int hashCode() {
+      return java.util.Objects.hash(claim, replay);
+    }
+  }
 
   private final ClaimStore store;
   private final ClaimPolicyValidator validator;
@@ -60,7 +100,7 @@ public class ClaimSubmissionService {
       record = store.create(UUID.randomUUID().toString(), idempotencyKey, fingerprint, request);
     } catch (DataIntegrityViolationException race) {
       Optional<ClaimRecord> winner = store.findByKey(idempotencyKey);
-      if (winner.isEmpty()) throw race;
+      if (!winner.isPresent()) throw race;
       log.recovered(race);
       return replay(winner.get(), fingerprint);
     }
@@ -80,13 +120,14 @@ public class ClaimSubmissionService {
       boolean cleaned = !uploadAttempted || compensate(record.getObjectKey());
       boolean uncertainUpload =
           uploadAttempted
-              && primary instanceof IntegrationException integration
-              && (integration.kind() == IntegrationException.Kind.TIMEOUT
-                  || integration.kind() == IntegrationException.Kind.UNAVAILABLE);
+              && primary instanceof IntegrationException
+              && (((IntegrationException) primary).kind() == IntegrationException.Kind.TIMEOUT
+                  || ((IntegrationException) primary).kind()
+                      == IntegrationException.Kind.UNAVAILABLE);
       boolean rejected =
           primary instanceof BusinessException
-              || primary instanceof IntegrationException integration
-                  && integration.kind() == IntegrationException.Kind.REJECTED;
+              || primary instanceof IntegrationException
+                  && ((IntegrationException) primary).kind() == IntegrationException.Kind.REJECTED;
       store.transition(
           record.getId(),
           cleaned && !uncertainUpload
@@ -210,17 +251,18 @@ public class ClaimSubmissionService {
 
   private String fingerprint(ClaimRequest request) {
     try {
-      return HexFormat.of()
-          .formatHex(
-              MessageDigest.getInstance("SHA-256").digest(mapper.writeValueAsBytes(request)));
+      return io.github.commonlogging.internal.Java8Bytes.hex(
+          MessageDigest.getInstance("SHA-256").digest(mapper.writeValueAsBytes(request)));
     } catch (Exception error) {
       throw new IllegalStateException("Could not fingerprint claim request", error);
     }
   }
 
   private String code(RuntimeException error) {
-    return error instanceof BusinessException business
-        ? business.code()
-        : error instanceof IntegrationException integration ? integration.code() : "INTERNAL_ERROR";
+    return error instanceof BusinessException
+        ? ((BusinessException) error).code()
+        : error instanceof IntegrationException
+            ? ((IntegrationException) error).code()
+            : "INTERNAL_ERROR";
   }
 }

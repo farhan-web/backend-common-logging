@@ -1,10 +1,10 @@
 # Contoh Spring Boot CRUD dengan common logging
 
-[Kontrak logging schema 3 dan migrasi](../../backend-common-logging/ENTERPRISE-LOGGING.md) · [Trace/span OpenTelemetry](../../backend-common-logging/TRACE-CONTEXT.md)
+[Java 8 / Boot 2.4](../../backend-common-logging/JAVA8-COMPATIBILITY.md) · [Kontrak logging schema 3 dan migrasi](../../backend-common-logging/ENTERPRISE-LOGGING.md) · [Trace/span OpenTelemetry](../../backend-common-logging/TRACE-CONTEXT.md)
 
 Project contoh yang memakai **dependency JAR** `io.github.commonlogging:backend-common-logging:0.1.0-SNAPSHOT`, bukan menyalin source logger ke aplikasi.
 
-Stack: Java release **17**, Spring Boot **3.5.11**, Spring MVC, Bean Validation, Spring Data JPA, dan **H2 in-memory**. Build/test lokal memakai JDK 21 dengan target bytecode Java 17. Bisa dijalankan dengan Java 17+.
+Stack: **Java 8**, Spring Boot **2.4.3** (juga diuji 2.4.4), Spring MVC, Bean Validation, Spring Data JPA, H2 in-memory, RestTemplate dan AWS SDK v2 Apache client. Build/runtime menggunakan JDK 8 nyata. Example hanya consumer referensi; artifact utama tetap satu JAR common.
 
 [Flow klaim kompleks: core + S3 + notifikasi](COMPLEX-FLOW.md) · [Library logging](../../backend-common-logging/README.md) · [Request siap jalan di IntelliJ](requests.http) · [Integration test](src/test/java/com/example/insurance/PolicyApiIntegrationTest.java)
 
@@ -122,7 +122,7 @@ Malformed JSON, enum invalid, path ID invalid, dan method HTTP yang salah memaka
 | [ApiErrorClassifier](src/main/java/com/example/insurance/error/ApiErrorClassifier.java) | Kode error aplikasi dipetakan untuk tExceptionLog |
 | [GlobalExceptionHandler](src/main/java/com/example/insurance/error/GlobalExceptionHandler.java) | `ExceptionLoggingBridge` memanggil tExceptionLog; response dimiliki aplikasi |
 | [application.yml](src/main/resources/application.yml) | H2, trace, application package, DTO capture paths |
-| [logback-spring.xml](src/main/resources/logback-spring.xml) | StructuredLogEncoder Spring Boot; key/value native dan payload object JSON |
+| [logback-spring.xml](src/main/resources/logback-spring.xml) | Dedicated common.logging appender %msg%n: satu object JSON per baris |
 
 Auto-configuration library memasang request filter dan body advice; tidak perlu copy logger/filter ke aplikasi. Ambil X-Trace-ID dari response, lalu cari nilai traceId tersebut dalam JSON log untuk melihat request start, payload input, service start/info/end, payload response, dan request end. Class/method terlihat otomatis.
 
@@ -155,7 +155,7 @@ Gunakan `SELECT * FROM INSURANCE_POLICIES;`. Console ini hanya untuk demo lokal,
 Dari root, `mvn test` menguji library dan consumer. `mvn -pl examples/insurance-crud -am test` memilih app beserta dependency source-nya. Delapan integration tests memakai database H2 asli: full CRUD, masking vs response, validation, duplicate, 404, conflicting update, malformed/type/HTTP input, serta unexpected NPE yang aman.
 
 
-Hasil lokal: **20 integration tests aplikasi (8 CRUD + 12 flow kompleks) + 49 tests library lulus**, formatting check lulus, dan executable JAR berhasil dibuild. Bytecode aplikasi dan library bertarget Java 17; runtime pengujian lokal JDK 21.
+Hasil lokal: **60 test library dan 21 test aplikasi per versi Boot (2.4.3/2.4.4)** lulus pada JDK 8; consumer memuat satu JAR yang sama dengan checksum tetap. Test mencakup servlet HTTP nyata serta encoder JSON.
 
 
 ## Flow integrasi kompleks
@@ -172,10 +172,12 @@ Setiap request tanpa upstream `traceparent` mendapat traceId baru. REQUEST_START
 
 Method service yang memakai @LoggedOperation sekarang mencatat input DTO dan result DTO setelah masking, saat payload-enabled=true. Contoh policy.create: PROCESS_START.payload berisi PolicyRequest, PROCESS_END.payload berisi PolicyResponse termasuk ID yang baru disimpan; keduanya tetap memakai spanId service yang sama. REQUEST_PAYLOAD/RESPONSE_PAYLOAD tetap terkait span root HTTP. Claim submission menggunakan DTO request yang menjadi argument kedua, mengabaikan raw idempotency key, dan result wrapper Submission juga opt-in. Entity database yang tidak opt-in ditandai SKIPPED. Untuk menghindari pengulangan pada service tertentu gunakan logInput=false/logResult=false pada annotation.
 
-## Revisi logging enterprise
+## Kontrak Java 8 / Boot 2.4
 
-Trace/span menggunakan SDK OpenTelemetry yang sama dengan Micrometer. HTTP client otomatis membuat CLIENT span di bawah scope integrasi `callHttp`; S3 yang belum diinstrumentasi memakai `call`. DTO baru perlu klasifikasi field; scalar method parameter dapat diberi `@LogValue`, `@LogMask`, `@LogExclude`. Contoh nyata: PolicyService.get, ClaimPolicyValidator.validate, ClaimSubmissionService.submit, dan DTO integration.
+Trace/span memakai SDK OpenTelemetry dan RestTemplate interceptor library. `callHttp` membuka scope INTERNAL; interceptor membuat CLIENT transport pada host allowlist. S3 memakai wrapper CLIENT karena belum diinstrumentasi. DTO field perlu @LogValue/@LogMask atau policy; field baru tanpa aturan dilewati. Parameter scalar dapat dipilih/masking/exclude. Local payload aktif; external default nonaktif.
 
-Local profile mengaktifkan masked payload dan native JSON. Library default/external profile menonaktifkan payload. OTLP export default nonaktif. Local metrics tersedia di `/actuator/metrics/common.logging.events.dropped` dan metric `common.logging.backend.errors`, `common.logging.payload.failures`, `common.logging.events.written`; external profile hanya membuka health.
+Metrics lokal: `/actuator/metrics/common.logging.events.dropped`, serta metric backend.errors, payload.failures dan events.written dengan prefix common.logging. External hanya membuka health. Tidak ada OTLP export otomatis; sediakan SpanProcessor/SDK bean aplikasi jika diperlukan.
 
-Jalankan `./run.sh` dari folder ini, atau `./examples/insurance-crud/run.sh` dari root untuk membangun ulang library dan example. Maven command tetap `mvn spring-boot:run` dari folder example setelah library di-package; library bukan executable aplikasi. Detail [run lokal](../../backend-common-logging/ENTERPRISE-LOGGING.md).
+Jalankan `bash examples/insurance-crud/run.sh` dari root. Script memakai JDK 8, membangun ulang library dan example. Maven command manual tetap `mvn spring-boot:run` dari folder example sesudah JAR tersedia. Library bukan aplikasi executable.
+
+Lihat [panduan JAR Java 8](../../backend-common-logging/JAVA8-COMPATIBILITY.md), termasuk dependency runtime jika memakai systemPath.

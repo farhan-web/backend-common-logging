@@ -5,6 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties("backend.common.logging")
 public class LoggingProperties {
+  // Retained for configuration compatibility. Boot 2 always emits sanitized JSON messages.
   private boolean structuredArgumentsEnabled;
 
   public boolean isStructuredArgumentsEnabled() {
@@ -140,7 +141,7 @@ public class LoggingProperties {
   }
 
   public void setPayloadPaths(List<String> v) {
-    payloadPaths = List.copyOf(v);
+    payloadPaths = io.github.commonlogging.internal.Java8Collections.copyList(v);
   }
 
   public List<String> getPropagationHosts() {
@@ -148,7 +149,7 @@ public class LoggingProperties {
   }
 
   public void setPropagationHosts(List<String> hosts) {
-    propagationHosts = List.copyOf(hosts);
+    propagationHosts = io.github.commonlogging.internal.Java8Collections.copyList(hosts);
   }
 
   public void validate() {

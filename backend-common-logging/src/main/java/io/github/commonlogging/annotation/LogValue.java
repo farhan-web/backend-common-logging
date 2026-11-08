@@ -4,12 +4,7 @@ import java.lang.annotation.*;
 
 /** Explicit approval for a safe field, parameter, or scalar result to enter logs. */
 @Retention(RetentionPolicy.RUNTIME)
-@Target({
-  ElementType.FIELD,
-  ElementType.METHOD,
-  ElementType.RECORD_COMPONENT,
-  ElementType.PARAMETER
-})
+@Target({ElementType.FIELD, ElementType.METHOD, ElementType.PARAMETER})
 public @interface LogValue {
   String value() default "";
 }

@@ -16,7 +16,7 @@ public final class LogOperation implements AutoCloseable {
     this.writer = writer;
     this.span = span;
     this.context = span.context();
-    var e = writer.event(type("START"), context);
+    java.util.Map<java.lang.String, java.lang.Object> e = writer.event(type("START"), context);
     if (capture) writer.payload(e, input);
     writer.emit("INFO", e);
   }
@@ -34,14 +34,14 @@ public final class LogOperation implements AutoCloseable {
   }
 
   private void endInternal(Object output, boolean capture) {
-    var e = finish("END", "SUCCESS");
+    java.util.Map<java.lang.String, java.lang.Object> e = finish("END", "SUCCESS");
     if (e == null) return;
     if (capture) writer.payload(e, output);
     writer.emit("INFO", e);
   }
 
   public void reject(String code, String safeMessage) {
-    var e = finish("REJECTED", "REJECTED");
+    java.util.Map<java.lang.String, java.lang.Object> e = finish("REJECTED", "REJECTED");
     if (e == null) return;
     e.put("errorCode", StructuredEventWriter.safe(code));
     e.put("message", StructuredEventWriter.safe(safeMessage));
@@ -57,7 +57,8 @@ public final class LogOperation implements AutoCloseable {
     LogContext.failed(error, context);
     boolean expected = details != null && details.expected();
     if (!expected) span.error(error.getClass().getName());
-    var e = finish(expected ? "REJECTED" : "FAILED", expected ? "REJECTED" : "FAILED");
+    java.util.Map<java.lang.String, java.lang.Object> e =
+        finish(expected ? "REJECTED" : "FAILED", expected ? "REJECTED" : "FAILED");
     if (e == null) return;
     e.put("exceptionType", error.getClass().getName());
     if (details != null) {
@@ -74,7 +75,7 @@ public final class LogOperation implements AutoCloseable {
   private Map<String, Object> finish(String suffix, String outcome) {
     if (terminal || closed) return null;
     terminal = true;
-    var e = writer.event(type(suffix), context);
+    java.util.Map<java.lang.String, java.lang.Object> e = writer.event(type(suffix), context);
     e.put("outcome", outcome);
     e.put("durationMs", Math.max(0, (System.nanoTime() - started) / 1_000_000));
     return e;
@@ -86,7 +87,7 @@ public final class LogOperation implements AutoCloseable {
     try {
       if (!terminal) {
         span.error("INCOMPLETE");
-        var e = finish("INCOMPLETE", "FAILED");
+        java.util.Map<java.lang.String, java.lang.Object> e = finish("INCOMPLETE", "FAILED");
         writer.emit("WARN", e);
       }
     } finally {

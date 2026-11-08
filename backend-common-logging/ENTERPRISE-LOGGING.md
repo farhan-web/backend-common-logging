@@ -1,29 +1,12 @@
-# Kontrak logging schema 3
+# Kontrak payload dan event — schema 3
 
-[Library](README.md) · [Trace/span](TRACE-CONTEXT.md) · [Contoh CRUD](../examples/insurance-crud/README.md) · [Flow kompleks](../examples/insurance-crud/COMPLEX-FLOW.md) · [Desain awal](../docs/insurance-common/README.md)
+[Library](README.md) · [Java 8 / Boot 2.4: build dan migrasi](JAVA8-COMPATIBILITY.md) · [Trace/span](TRACE-CONTEXT.md) · [Example](../examples/insurance-crud/README.md)
 
-Dokumen ini menjadi kontrak aktif untuk revisi enterprise. API bisnis tetap dua facade: `TLog` dan `TExceptionLog`. Baseline: Java release 17, Spring Boot 3.5.11, MVC synchronous. Build/test lokal menggunakan JDK 21; belum menjadi sertifikasi deployment JDK 17 atau repository kantor.
+Baseline aktif: **satu JAR Java 8 untuk Spring Boot 2.4.3/2.4.4**. API bisnis tetap dua facade: TLog dan TExceptionLog. Source dan dependencies legacy disesuaikan tanpa menggandakan artifact. DTO record pada implementasi sebelumnya menjadi class immutable dengan accessor lama dan JavaBean getter.
 
-## Trace yang sama dengan framework
+## Tracing dan adapter legacy
 
-Library menggunakan OpenTelemetry SDK, bukan generator ID/parser W3C sendiri. Pada Spring Boot, `TracingRuntime` memakai bean `OpenTelemetry` yang juga digunakan Micrometer bridge. Operasi INTERNAL membuka Micrometer Observation agar HTTP client otomatis mengenali parent operasi. Di luar Spring tersedia SDK fallback tanpa exporter dan tanpa global registration.
-
-Consumer Spring menyediakan dependency berikut, versi mengikuti BOM Boot:
-
-```xml
-<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-actuator</artifactId></dependency>
-<dependency><groupId>io.micrometer</groupId><artifactId>micrometer-tracing-bridge-otel</artifactId></dependency>
-<!-- Jika akan mengirim trace ke collector: -->
-<dependency><groupId>io.opentelemetry</groupId><artifactId>opentelemetry-exporter-otlp</artifactId></dependency>
-```
-
-Examples tetap memakai `systemPath` ke JAR lokal sesuai kebutuhan development. Karena system dependency tidak membawa dependency transitif, dependencies di atas ditulis eksplisit pada POM example. Rebuild library sebelum menjalankan example. Untuk distribusi kantor gunakan repository artifact/internal Maven setelah koordinat ditentukan.
-
-`TraceFilter` menggunakan SERVER span framework yang sudah aktif; jika belum ada, filter membuat dan memiliki SERVER span sendiri. Filter hanya mengakhiri span yang dibuatnya sendiri. Tidak ada dua SERVER span library/framework untuk request yang sama.
-
-Untuk Boot RestClient/RestTemplate builder gunakan `dependencyLogging.callHttp("core", "core.lookup", dto, action)`: event DEPENDENCY berada di scope INTERNAL; Boot membuat CLIENT span untuk transport sebenarnya dan mengirim W3C context. Untuk SDK yang belum diinstrumentasi seperti S3 pada contoh gunakan `call(...)` empat argumen: wrapper membuat CLIENT span dan adapter memasang `tLog.traceparent()` pada request. Hindari wrapper CLIENT tambahan jika SDK di kantor sudah diinstrumentasi.
-
-Automatic Boot propagation mengikuti konfigurasi framework dan destination client, bukan `propagation-hosts` milik library. Property lama tersebut hanya dipakai oleh `TraceClientInterceptor` bila dipasang manual; interceptor itu tidak lagi otomatis dipasang. Tetapkan endpoint dan kebijakan egress di aplikasi. Standalone/manual interceptor tidak membuat span transport tambahan.
+SDK OpenTelemetry 1.49.0 tetap mengelola span, ID, W3C propagation dan export hooks. Spring Boot 2.4 menggunakan filter javax.servlet dan RestTemplate interceptor library; tidak memakai Micrometer Observation, RestClient atau tracing bridge Boot 3. Kontrak detail ada di [trace/span](TRACE-CONTEXT.md).
 
 ## Payload opt-in per field dan parameter
 
@@ -60,25 +43,11 @@ public boolean check(
 
 Aspect dipasang pada method implementasi Spring bean; self-invocation, private method dan instance yang dibuat manual tidak melewati proxy. Future/reactive/@Async dilewati aspect synchronous. Propagasi executor harus eksplisit atau memakai mekanisme context propagation platform kantor.
 
-## JSON terstruktur tanpa JSON di dalam message
+## JSON pada SLF4J 1.7 / Logback
 
-Mode kompatibilitas default (`structured-arguments-enabled=false`) tetap mengirim JSON message ke `common.logging`. Pilih mode native untuk encoder Spring Boot:
+Sink default menulis sanitized JSON message pada logger `common.logging`. Dedicated appender dengan `%msg%n` dan `additivity=false` menghasilkan satu object JSON per baris tanpa escaped JSON di dalam message. Lihat [konfigurasi example](../examples/insurance-crud/src/main/resources/logback-spring.xml). Jangan menggunakan StructuredLogEncoder khusus Boot 3 atau membungkus pesan tersebut lagi sebagai string pada JSON encoder lain. Untuk platform kantor, override EventSink jika perlu memetakan event ke sink existing.
 
-```yaml
-backend:
-  common:
-    logging:
-      structured-arguments-enabled: true
-      payload-enabled: false
-logging:
-  structured:
-    format:
-      console: logstash
-```
-
-Mode native memakai SLF4J 2 key/value dan message berisi safe message pemanggil atau `common.logging.event`; payload berupa object JSON, bukan escaped string. Encoder menulis severity/message; library menghindari duplikasi field severity, message, dan MDC. Jika memakai custom Logback XML, gunakan `StructuredLogEncoder` seperti [example](../examples/insurance-crud/src/main/resources/logback-spring.xml), bukan `%msg` atau pattern console biasa. Pilih satu formatter; aktifkan flag native hanya jika appender mempertahankan key/value.
-
-Schema berubah menjadi `schemaVersion: 3` karena field payload sekarang explicit allowlist. Dashboard/parser lama perlu menerima field yang hilang dan envelope arguments. Nama event lifecycle tetap dipertahankan.
+Field severity, timestamp, trace/span, class/method, outcome dan payload berada di object schemaVersion 3. Property lama structured-arguments-enabled tidak berpengaruh pada baseline Boot 2; output selalu JSON message. Annotation field tetap explicit allowlist. Dashboard/parser harus menerima field yang dilewati dan envelope arguments.
 
 ## Kegagalan logging dapat dimonitor
 
@@ -93,14 +62,12 @@ Schema berubah menjadi `schemaVersion: 3` karena field payload sekarang explicit
 
 Status backend bisa mencakup logger aplikasi lain dan tidak selalu sama dengan jumlah event hilang. Error collector/disk/network yang tidak dilaporkan sink/Logback harus dimonitor platform logging. Error awal sebelum Spring memasang monitor tetap dibaca dari status startup. Logging tidak melempar ulang kegagalan sink ke proses bisnis atau mencatat payload mentah sebagai fallback.
 
-Local example mengekspos health/metrics di loopback. External profile hanya mengekspos health. Tentukan security, akses log, retention, alert counter, collector dan backpressure di platform kantor. Tidak ada pengiriman OTLP secara default; aktifkan `OTEL_EXPORT_ENABLED=true` dan `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` pada external profile setelah collector disiapkan. `sampling.probability=1.0` di contoh untuk verifikasi; tentukan sampling produksi sesuai volume dan kebutuhan investigasi. Logs tetap ditulis untuk request unsampled.
+Local example membuka health/metrics di loopback, external profile hanya health. SDK fallback mengambil bean SpanProcessor aplikasi untuk export; collector tidak dihubungi otomatis. Aplikasi dapat menyediakan bean OpenTelemetry sendiri. SDK standalone memakai parent-based sampler always-on untuk pengujian; sampling produksi dikonfigurasi melalui SDK aplikasi. Logs tetap dapat ditulis untuk request unsampled.
 
 ## Verifikasi dan batas
 
-Suite mencakup privacy default field baru, masking interface/parameter/result, banyak parameter scalar, lifecycle/input/result, scope cleanup, fail-safe sink metrics, exported SDK spans, satu root server, W3C invalid input, transaksi, CRUD H2, HTTP dan AWS SDK menuju simulator lokal, timeout/reconciliation/compensation, serta encoder JSON aktual dengan deteksi key duplikat.
+Matriks memakai JDK 8 nyata: **60 test library dan 21 test consumer per versi Boot**, tanpa failure/error/skipped. Checksum membuktikan consumer 2.4.3 dan 2.4.4 memakai satu file JAR yang sama. Suite memeriksa field baru tanpa aturan, generic/interface masking, parameter/result, lifecycle, context cleanup, fail-safe sink metrics, exported SDK spans, servlet HTTP nyata, JSON encoder, transaksi, CRUD, timeout/reconciliation/compensation.
 
-Belum dilakukan: koneksi core/S3 kantor, external collector, uji beban representatif, security chain kantor, container servlet async produksi, WebFlux dan arbitrary async service. Sebelum rollout, pilot pada satu flow di repository kantor: cocokkan trace di collector dengan log, ukur p95/p99 dan volume dengan payload on/off, simulasi sink gagal, uji tidak ada PII di semua appender, lalu tetapkan retention dan akses. Revisi kode ini tidak mengubah otorisasi atau mengakses sistem kantor.
+Belum diverifikasi: repository/core/S3/collector kantor, security chain, beban, backpressure, retention, servlet async produksi dan arbitrary async services. Annotation common tidak membersihkan logs/telemetry SDK lain secara otomatis. Pilot produksi tetap diperlukan. Reuse di Java 21 dan migrasi ke Boot 3 adalah verifikasi framework terpisah.
 
-Referensi: [Spring Boot tracing](https://docs.spring.io/spring-boot/3.5/reference/actuator/tracing.html), [Spring Boot structured logging](https://docs.spring.io/spring-boot/3.5/reference/features/logging.html), [Micrometer tracing](https://docs.micrometer.io/tracing/reference/api.html), [OpenTelemetry Java](https://opentelemetry.io/docs/languages/java/instrumentation/), [OWASP logging](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html). Annotation payload merupakan kontrak library ini, bukan annotation standar OpenTelemetry.
-
-Hasil lokal revisi ini: test library dan examples lulus tanpa failure/error/skipped; test server servlet nyata membuktikan satu framework SERVER span dan response span ID cocok dengan span yang diekspor. Lihat report Maven untuk jumlah terbaru.
+Referensi: [Spring Boot 2.4](https://docs.spring.io/spring-boot/docs/2.4.4/reference/htmlsingle/), [OpenTelemetry Java](https://github.com/open-telemetry/opentelemetry-java), [OWASP logging](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html). Annotation payload adalah kontrak library ini, bukan annotation standar tracing.

@@ -68,13 +68,14 @@ public class S3DocumentStorage {
   }
 
   private AwsRequestOverrideConfiguration trace() {
-    var builder = AwsRequestOverrideConfiguration.builder();
+    software.amazon.awssdk.awscore.AwsRequestOverrideConfiguration.Builder builder =
+        AwsRequestOverrideConfiguration.builder();
     if (tLog.traceparent() != null) builder.putHeader("traceparent", tLog.traceparent());
     return builder.build();
   }
 
   private IntegrationException translate(String code, SdkException cause) {
-    var kind =
+    com.example.insurance.integration.IntegrationException.Kind kind =
         cause instanceof ApiCallTimeoutException || cause instanceof ApiCallAttemptTimeoutException
             ? IntegrationException.Kind.TIMEOUT
             : cause instanceof SdkClientException

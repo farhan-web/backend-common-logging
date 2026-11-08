@@ -35,7 +35,8 @@ public final class PayloadLoggingAdvice extends RequestBodyAdviceAdapter
       MethodParameter parameter,
       Type type,
       Class<? extends HttpMessageConverter<?>> converter) {
-    var attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+    org.springframework.web.context.request.ServletRequestAttributes attributes =
+        (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
     if (attributes != null && attributes.getRequest().getAttribute(CAPTURED) == null) {
       log.payload("REQUEST_PAYLOAD", body, location(parameter));
       attributes.getRequest().setAttribute(CAPTURED, true);
@@ -62,8 +63,10 @@ public final class PayloadLoggingAdvice extends RequestBodyAdviceAdapter
 
   private boolean enabled() {
     if (!properties.isEnabled() || !properties.isPayloadEnabled()) return false;
-    var attributes = RequestContextHolder.getRequestAttributes();
-    if (!(attributes instanceof ServletRequestAttributes servlet)) return false;
+    org.springframework.web.context.request.RequestAttributes attributes =
+        RequestContextHolder.getRequestAttributes();
+    if (!(attributes instanceof ServletRequestAttributes)) return false;
+    ServletRequestAttributes servlet = (ServletRequestAttributes) attributes;
     String path = servlet.getRequest().getRequestURI();
     return properties.getPayloadPaths().stream()
         .anyMatch(pattern -> new AntPathMatcher().match(pattern, path));

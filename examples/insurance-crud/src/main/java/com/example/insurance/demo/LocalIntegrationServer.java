@@ -25,7 +25,49 @@ public final class LocalIntegrationServer implements AutoCloseable {
     ERROR_AFTER_WRITE
   }
 
-  public record FaultRequest(String operation, Fault fault) {}
+  public static final class FaultRequest {
+    private final String operation;
+    private final Fault fault;
+
+    @com.fasterxml.jackson.annotation.JsonCreator
+    public FaultRequest(
+        @com.fasterxml.jackson.annotation.JsonProperty("operation") String operation,
+        @com.fasterxml.jackson.annotation.JsonProperty("fault") Fault fault) {
+
+      this.operation = operation;
+      this.fault = fault;
+    }
+
+    public String operation() {
+      return operation;
+    }
+
+    public String getOperation() {
+      return operation;
+    }
+
+    public Fault fault() {
+      return fault;
+    }
+
+    public Fault getFault() {
+      return fault;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      if (this == other) return true;
+      if (other == null || getClass() != other.getClass()) return false;
+      FaultRequest that = (FaultRequest) other;
+      return java.util.Objects.equals(operation, that.operation)
+          && java.util.Objects.equals(fault, that.fault);
+    }
+
+    @Override
+    public int hashCode() {
+      return java.util.Objects.hash(operation, fault);
+    }
+  }
 
   private final HttpServer server;
   private final ExecutorService executor = Executors.newFixedThreadPool(8);
@@ -61,7 +103,7 @@ public final class LocalIntegrationServer implements AutoCloseable {
   }
 
   public void fault(String operation, Fault fault) {
-    if (!Set.of(
+    if (!io.github.commonlogging.internal.Java8Collections.set(
             "core.verify", "core.submit", "core.lookup", "s3.put", "s3.delete", "notification.send")
         .contains(operation)) throw new IllegalArgumentException("Unknown simulator operation");
     faults.put(operation, fault);
@@ -77,7 +119,7 @@ public final class LocalIntegrationServer implements AutoCloseable {
   }
 
   public Map<String, Object> state() {
-    return Map.of(
+    return io.github.commonlogging.internal.Java8Collections.map(
         "coreClaims",
         claims.size(),
         "objects",
@@ -85,7 +127,7 @@ public final class LocalIntegrationServer implements AutoCloseable {
         "notifications",
         notifications.size(),
         "traces",
-        Map.copyOf(traces));
+        io.github.commonlogging.internal.Java8Collections.copyMap(traces));
   }
 
   private Fault consume(String key) {
@@ -95,6 +137,8 @@ public final class LocalIntegrationServer implements AutoCloseable {
 
   private void dispatch(HttpExchange exchange) throws IOException {
     active.incrementAndGet();
+    // Keep the small JDK 8 simulator deterministic after cancelled HTTP requests.
+    exchange.getResponseHeaders().set("Connection", "close");
     String path = exchange.getRequestURI().getPath();
     String method = exchange.getRequestMethod();
     String operation =
@@ -117,7 +161,7 @@ public final class LocalIntegrationServer implements AutoCloseable {
         span.put("spanId", scope.context().spanId());
         if (scope.context().parentSpanId() != null)
           span.put("parentSpanId", scope.context().parentSpanId());
-        spans.put(operation, Map.copyOf(span));
+        spans.put(operation, io.github.commonlogging.internal.Java8Collections.copyMap(span));
       }
       try {
         if (path.equals("/__demo/state") && method.equals("GET")) {
@@ -139,7 +183,11 @@ public final class LocalIntegrationServer implements AutoCloseable {
           } else if (f == Fault.REJECT) {
             json(exchange, 422, new Receipt("REJECTED"));
           } else if (f == Fault.INVALID_RESPONSE) {
-            json(exchange, 200, Map.of("coverageLimit", "not-a-number"));
+            json(
+                exchange,
+                200,
+                io.github.commonlogging.internal.Java8Collections.map(
+                    "coverageLimit", "not-a-number"));
           } else {
             json(exchange, 200, new VerifyResponse(true, new BigDecimal("100000000.00")));
           }
@@ -156,7 +204,11 @@ public final class LocalIntegrationServer implements AutoCloseable {
                     request.externalReference(),
                     id -> new CoreClaimResponse("CORE-" + id, id, "ACCEPTED"));
             if (f == Fault.TIMEOUT_AFTER_ACCEPT) Thread.sleep(1800);
-            if (f == Fault.INVALID_RESPONSE) json(exchange, 200, Map.of("unexpected", true));
+            if (f == Fault.INVALID_RESPONSE)
+              json(
+                  exchange,
+                  200,
+                  io.github.commonlogging.internal.Java8Collections.map("unexpected", true));
             else json(exchange, 200, result);
           }
         } else if (operation.equals("core.lookup") && method.equals("GET")) {
@@ -209,7 +261,7 @@ public final class LocalIntegrationServer implements AutoCloseable {
       return;
     }
     if (exchange.getRequestMethod().equals("PUT")) {
-      byte[] bytes = exchange.getRequestBody().readNBytes(1048577);
+      byte[] bytes = readLimited(exchange.getRequestBody(), 1048577);
       if (bytes.length > 1048576) {
         s3Error(exchange);
         return;
@@ -225,7 +277,8 @@ public final class LocalIntegrationServer implements AutoCloseable {
           .set(
               "ETag",
               "\""
-                  + HexFormat.of().formatHex(MessageDigest.getInstance("MD5").digest(bytes))
+                  + io.github.commonlogging.internal.Java8Bytes.hex(
+                      MessageDigest.getInstance("MD5").digest(bytes))
                   + "\"");
       exchange.sendResponseHeaders(200, -1);
     } else if (exchange.getRequestMethod().equals("DELETE")) {
@@ -245,8 +298,19 @@ public final class LocalIntegrationServer implements AutoCloseable {
     exchange.getResponseBody().write(body);
   }
 
+  private static byte[] readLimited(InputStream input, int limit) throws IOException {
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    byte[] buffer = new byte[8192];
+    while (out.size() < limit) {
+      int n = input.read(buffer, 0, Math.min(buffer.length, limit - out.size()));
+      if (n < 0) break;
+      out.write(buffer, 0, n);
+    }
+    return out.toByteArray();
+  }
+
   private <T> T read(HttpExchange exchange, Class<T> type) throws IOException {
-    byte[] bytes = exchange.getRequestBody().readNBytes(16385);
+    byte[] bytes = readLimited(exchange.getRequestBody(), 16385);
     if (bytes.length > 16384) throw new IOException("Demo payload limit");
     return mapper.readValue(bytes, type);
   }

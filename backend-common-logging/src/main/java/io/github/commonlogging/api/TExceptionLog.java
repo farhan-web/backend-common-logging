@@ -32,7 +32,7 @@ public final class TExceptionLog {
     if (context == null
         || !TraceParent.validTraceId(context.traceId())
         || !TraceParent.validSpanId(context.spanId())) {
-      try (var span =
+      try (io.github.commonlogging.internal.LogContext.SpanScope span =
           LogContext.start(
               LogContext.runtime(runtime),
               context == null ? "log.error" : context.operation(),
@@ -52,7 +52,8 @@ public final class TExceptionLog {
     } catch (RuntimeException ignored) {
       details = new ErrorDetails("INTERNAL", "UNEXPECTED_ERROR", false);
     }
-    var e = writer.event(details.expected() ? "PROCESS_REJECTED" : "UNHANDLED_ERROR", context);
+    java.util.Map<java.lang.String, java.lang.Object> e =
+        writer.event(details.expected() ? "PROCESS_REJECTED" : "UNHANDLED_ERROR", context);
     e.put("errorCategory", details.category());
     e.put("errorCode", details.code());
     e.put("exceptionType", cause.getClass().getName());
@@ -98,6 +99,6 @@ public final class TExceptionLog {
   private boolean applicationFrame(StackTraceElement f) {
     String pkg = writer.options().applicationPackage();
     String name = f.getClassName();
-    return !pkg.isBlank() && (name.equals(pkg) || name.startsWith(pkg + "."));
+    return !pkg.trim().isEmpty() && (name.equals(pkg) || name.startsWith(pkg + "."));
   }
 }

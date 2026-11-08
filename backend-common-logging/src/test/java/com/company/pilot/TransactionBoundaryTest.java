@@ -24,8 +24,9 @@ class TransactionBoundaryTest {
         .withUserConfiguration(Consumer.class)
         .run(
             ctx -> {
-              var events = ctx.getBean(Capture.class).events;
-              try (var request =
+              java.util.List<com.fasterxml.jackson.databind.JsonNode> events =
+                  ctx.getBean(Capture.class).events;
+              try (io.github.commonlogging.api.TraceScope request =
                   ctx.getBean(TLog.class).withTrace("c4610066e1b3611bbd905b61993d0efc")) {
                 assertThatThrownBy(() -> ctx.getBean(Service.class).execute())
                     .isInstanceOf(IllegalStateException.class)

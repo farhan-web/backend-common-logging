@@ -19,7 +19,7 @@ class LoggedOperationPayloadTest {
       new PayloadLogSerializer(new PayloadPolicies(), 6, 20, 100, 4096);
 
   Service service(boolean payloadEnabled) {
-    var writer =
+    io.github.commonlogging.internal.StructuredEventWriter writer =
         new StructuredEventWriter(
             (level, json) -> {
               try {
@@ -30,7 +30,8 @@ class LoggedOperationPayloadTest {
             },
             new LogOptions("test", "test", true, payloadEnabled, 16, "com.company"),
             serializer);
-    var factory = new AspectJProxyFactory(new Service());
+    org.springframework.aop.aspectj.annotation.AspectJProxyFactory factory =
+        new AspectJProxyFactory(new Service());
     factory.addAspect(new LoggedOperationAspect(new TLog(writer), serializer));
     return factory.getProxy();
   }
@@ -42,10 +43,106 @@ class LoggedOperationPayloadTest {
   }
 
   @LogPayload
-  record Input(@LogMask String name, @LogExclude String token, @LogValue String product) {}
+  static final class Input {
+    private final @LogMask String name;
+    private final @LogExclude String token;
+    private final @LogValue String product;
+
+    @com.fasterxml.jackson.annotation.JsonCreator
+    public Input(
+        @com.fasterxml.jackson.annotation.JsonProperty("name") String name,
+        @com.fasterxml.jackson.annotation.JsonProperty("token") String token,
+        @com.fasterxml.jackson.annotation.JsonProperty("product") String product) {
+
+      this.name = name;
+      this.token = token;
+      this.product = product;
+    }
+
+    public String name() {
+      return name;
+    }
+
+    public String getName() {
+      return name;
+    }
+
+    public String token() {
+      return token;
+    }
+
+    public String getToken() {
+      return token;
+    }
+
+    public String product() {
+      return product;
+    }
+
+    public String getProduct() {
+      return product;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      if (this == other) return true;
+      if (other == null || getClass() != other.getClass()) return false;
+      Input that = (Input) other;
+      return java.util.Objects.equals(name, that.name)
+          && java.util.Objects.equals(token, that.token)
+          && java.util.Objects.equals(product, that.product);
+    }
+
+    @Override
+    public int hashCode() {
+      return java.util.Objects.hash(name, token, product);
+    }
+  }
 
   @LogPayload
-  record Output(@LogMask String name, @LogValue String product) {}
+  static final class Output {
+    private final @LogMask String name;
+    private final @LogValue String product;
+
+    @com.fasterxml.jackson.annotation.JsonCreator
+    public Output(
+        @com.fasterxml.jackson.annotation.JsonProperty("name") String name,
+        @com.fasterxml.jackson.annotation.JsonProperty("product") String product) {
+
+      this.name = name;
+      this.product = product;
+    }
+
+    public String name() {
+      return name;
+    }
+
+    public String getName() {
+      return name;
+    }
+
+    public String product() {
+      return product;
+    }
+
+    public String getProduct() {
+      return product;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      if (this == other) return true;
+      if (other == null || getClass() != other.getClass()) return false;
+      Output that = (Output) other;
+      return java.util.Objects.equals(name, that.name)
+          && java.util.Objects.equals(product, that.product);
+    }
+
+    @Override
+    public int hashCode() {
+      return java.util.Objects.hash(name, product);
+    }
+  }
 
   Input input() {
     return new Input("Alice", "private-token", "health");
@@ -138,7 +235,7 @@ class LoggedOperationPayloadTest {
   @Test
   void failingCollectionPreflightDoesNotChangeBusinessExecution() {
     Collection<Object> broken =
-        new AbstractCollection<>() {
+        new AbstractCollection<Object>() {
           @Override
           public Iterator<Object> iterator() {
             throw new IllegalStateException("private-iteration-failure");
@@ -167,7 +264,7 @@ class LoggedOperationPayloadTest {
 
     @LoggedOperation("test.multiple")
     public List<Output> pair(String credential, Input first, Input second) {
-      return List.of(
+      return io.github.commonlogging.internal.Java8Collections.list(
           new Output(first.name(), first.product()), new Output(second.name(), second.product()));
     }
 

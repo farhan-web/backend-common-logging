@@ -43,7 +43,7 @@ public final class DependencyLogging {
   }
 
   private <T> T run(LogOperation operation, Supplier<T> action, boolean classify) {
-    try (operation) {
+    try (LogOperation lifecycle = operation) {
       try {
         T result = action.get();
         operation.end(result);

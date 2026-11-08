@@ -1,7 +1,6 @@
 package io.github.commonlogging.api;
 
 import io.github.commonlogging.internal.*;
-import java.util.Set;
 
 public final class TLog {
   private final StructuredEventWriter writer;
@@ -38,7 +37,7 @@ public final class TLog {
 
   /** Server/job ingress: the first started span becomes a child of the received remote span. */
   public TraceScope withTraceparent(String header) {
-    var scope = LogContext.incoming(runtime, header);
+    io.github.commonlogging.internal.LogContext.Scope scope = LogContext.incoming(runtime, header);
     return scope::close;
   }
 
@@ -100,44 +99,51 @@ public final class TLog {
     if (operation == null || !operation.matches("[A-Za-z0-9_.-]{1,128}"))
       throw new IllegalArgumentException("Invalid operation label");
     TracingRuntime active = LogContext.runtime(runtime);
-    var span =
+    io.github.commonlogging.internal.LogContext.SpanScope span =
         LogContext.start(
-            active, operation, LogContext.serverEntry() ? "SERVER" : kind, location, dependency);
+            active,
+            operation,
+            LogContext.serverEntry() && dependency == null ? "SERVER" : kind,
+            location,
+            dependency);
     return new LogOperation(writer, span, inputDto, capture);
   }
 
   public void info(String step, String safeMessage) {
     // A standalone event still gets a trace and a span; context is always cleaned afterward.
     if (LogContext.operation() == null) {
-      try (var span = startAt("log.event", null, false, caller.resolve())) {
+      try (io.github.commonlogging.api.LogOperation span =
+          startAt("log.event", null, false, caller.resolve())) {
         info(step, safeMessage);
         span.end();
       }
       return;
     }
-    var e = writer.event("PROCESS_INFO", location(step));
+    java.util.Map<java.lang.String, java.lang.Object> e =
+        writer.event("PROCESS_INFO", location(step));
     e.put("step", StructuredEventWriter.safe(step));
     e.put("message", StructuredEventWriter.safe(safeMessage));
     writer.emit("INFO", e);
   }
 
   public void payload(String event, Object dto, LogLocation location) {
-    if (!Set.of(
+    if (!io.github.commonlogging.internal.Java8Collections.set(
             "REQUEST_PAYLOAD",
             "RESPONSE_PAYLOAD",
             "DEPENDENCY_REQUEST_PAYLOAD",
             "DEPENDENCY_RESPONSE_PAYLOAD")
         .contains(event)) throw new IllegalArgumentException("Invalid payload event");
     if (!writer.options().payloadEnabled()) return;
-    var active = LogContext.operation();
+    io.github.commonlogging.api.FailureContext active = LogContext.operation();
     if (active == null) {
-      try (var span = startAt("log.payload", null, false, location)) {
+      try (io.github.commonlogging.api.LogOperation span =
+          startAt("log.payload", null, false, location)) {
         payload(event, dto, location);
         span.end();
       }
       return;
     }
-    var context =
+    io.github.commonlogging.api.FailureContext context =
         new FailureContext(
             active.operation(),
             active.spanId(),
@@ -146,13 +152,13 @@ public final class TLog {
             active.traceId(),
             active.dependency(),
             active.spanKind());
-    var e = writer.event(event, context);
+    java.util.Map<java.lang.String, java.lang.Object> e = writer.event(event, context);
     writer.payload(e, dto);
     writer.emit("INFO", e);
   }
 
   private FailureContext location(String step) {
-    var current = LogContext.operation();
+    io.github.commonlogging.api.FailureContext current = LogContext.operation();
     return new FailureContext(
         current.operation(),
         current.spanId(),

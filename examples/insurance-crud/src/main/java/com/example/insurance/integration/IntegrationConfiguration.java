@@ -11,7 +11,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.*;
 import software.amazon.awssdk.auth.credentials.*;
 import software.amazon.awssdk.core.checksums.*;
-import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
+import software.amazon.awssdk.http.apache.ApacheHttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.retries.StandardRetryStrategy;
 import software.amazon.awssdk.services.s3.*;
@@ -43,7 +43,7 @@ public class IntegrationConfiguration {
     boolean local = "local".equals(p.s3().mode());
     if (!local && !"aws".equals(p.s3().mode()))
       throw new IllegalArgumentException("S3 mode must be local or aws");
-    var builder =
+    software.amazon.awssdk.services.s3.S3ClientBuilder builder =
         S3Client.builder()
             .region(Region.of(p.s3().region()))
             .credentialsProvider(
@@ -52,7 +52,7 @@ public class IntegrationConfiguration {
                         AwsBasicCredentials.create("local-demo", "local-demo"))
                     : DefaultCredentialsProvider.create())
             .httpClientBuilder(
-                UrlConnectionHttpClient.builder()
+                ApacheHttpClient.builder()
                     .connectionTimeout(p.connectTimeout())
                     .socketTimeout(p.readTimeout()))
             .overrideConfiguration(

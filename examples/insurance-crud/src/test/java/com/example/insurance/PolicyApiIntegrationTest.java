@@ -22,7 +22,6 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.*;
 import org.springframework.web.bind.annotation.*;
 
-@org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability
 @SpringBootTest(properties = {"spring.h2.console.enabled=false", "insurance.demo.port=0"})
 @AutoConfigureMockMvc
 @Import(PolicyApiIntegrationTest.ProbeConfiguration.class)
@@ -51,7 +50,7 @@ class PolicyApiIntegrationTest {
 
   @Test
   void fullCrudPersistsInH2AndDeletesPolicy() throws Exception {
-    var created = create("POL-2026-123456");
+    org.springframework.test.web.servlet.MvcResult created = create("POL-2026-123456");
     long id = mapper.readTree(created.getResponse().getContentAsString()).path("id").asLong();
     assertThat(created.getResponse().getHeader("Location")).isEqualTo("/api/policies/" + id);
     assertThat(repository.findById(id)).isPresent();
@@ -76,7 +75,8 @@ class PolicyApiIntegrationTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("policyNumber").value("POL-UPDATED-654321"))
         .andExpect(jsonPath("status").value("INACTIVE"));
-    assertThat(repository.findById(id).orElseThrow().getPremium())
+    assertThat(
+            repository.findById(id).orElseThrow(java.util.NoSuchElementException::new).getPremium())
         .isEqualByComparingTo(new BigDecimal("98765.43"));
     mvc.perform(delete("/api/policies/{id}", id))
         .andExpect(status().isNoContent())
@@ -89,7 +89,7 @@ class PolicyApiIntegrationTest {
 
   @Test
   void payloadsAreMaskedButResponseIsUnchangedAndLocationIsAutomatic() throws Exception {
-    var result = create("POL-2026-123456");
+    org.springframework.test.web.servlet.MvcResult result = create("POL-2026-123456");
     JsonNode response = mapper.readTree(result.getResponse().getContentAsString());
     assertThat(response.path("holderName").asText()).isEqualTo("Budi Santoso");
     assertThat(response.path("policyNumber").asText()).isEqualTo("POL-2026-123456");
@@ -169,7 +169,7 @@ class PolicyApiIntegrationTest {
 
   @Test
   void updateCannotTakeAnotherPolicyNumberAndLeavesDatabaseUnchanged() throws Exception {
-    var first = create("POL-FIRST");
+    org.springframework.test.web.servlet.MvcResult first = create("POL-FIRST");
     create("POL-SECOND");
     long id = mapper.readTree(first.getResponse().getContentAsString()).path("id").asLong();
     mvc.perform(
@@ -179,7 +179,12 @@ class PolicyApiIntegrationTest {
                     request(
                         "POL-SECOND", "Changed Name", "changed@example.test", "1.00", "INACTIVE")))
         .andExpect(status().isConflict());
-    assertThat(repository.findById(id).orElseThrow().getPolicyNumber()).isEqualTo("POL-FIRST");
+    assertThat(
+            repository
+                .findById(id)
+                .orElseThrow(java.util.NoSuchElementException::new)
+                .getPolicyNumber())
+        .isEqualTo("POL-FIRST");
   }
 
   @Test
@@ -233,7 +238,7 @@ class PolicyApiIntegrationTest {
   String request(String policy, String name, String email, String premium, String status)
       throws Exception {
     return mapper.writeValueAsString(
-        Map.of(
+        io.github.commonlogging.internal.Java8Collections.map(
             "policyNumber",
             policy,
             "holderName",
@@ -251,14 +256,12 @@ class PolicyApiIntegrationTest {
         .map(
             event -> {
               try {
-                java.util.Map<String, Object> fields = new java.util.LinkedHashMap<>();
-                event.getKeyValuePairs().forEach(kv -> fields.put(kv.key, kv.value));
-                return mapper.<JsonNode>valueToTree(fields);
+                return mapper.readTree(event.getFormattedMessage());
               } catch (Exception error) {
                 throw new AssertionError(error);
               }
             })
-        .toList();
+        .collect(java.util.stream.Collectors.toList());
   }
 
   long count(List<JsonNode> events, String type) {
@@ -269,7 +272,7 @@ class PolicyApiIntegrationTest {
     return events.stream()
         .filter(event -> type.equals(event.path("event").asText()))
         .findFirst()
-        .orElseThrow();
+        .orElseThrow(java.util.NoSuchElementException::new);
   }
 
   @TestConfiguration(proxyBeanMethods = false)

@@ -34,7 +34,6 @@ backend:
       web-enabled: true
       operation-enabled: true
       payload-enabled: true
-      structured-arguments-enabled: true
       payload-paths:
         - /api/policies
         - /api/policies/*
@@ -52,9 +51,6 @@ backend:
       max-frames: 64
 
 logging:
-  structured:
-    format:
-      console: logstash
   level:
     org.hibernate.engine.jdbc.spi.SqlExceptionHelper: "OFF"
 
@@ -73,15 +69,6 @@ insurance:
       bucket: insurance-documents
 
 management:
-  tracing:
-    sampling:
-      probability: 1.0
-    propagation:
-      type: w3c
-  otlp:
-    tracing:
-      export:
-        enabled: false
   endpoints:
     web:
       exposure:

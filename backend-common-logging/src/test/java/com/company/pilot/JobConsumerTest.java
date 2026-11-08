@@ -13,13 +13,55 @@ import org.junit.jupiter.api.Test;
 /** Second consumer: no controller, servlet request, or insurance DTO dependency. */
 class JobConsumerTest {
   @LogPayload
-  record JobInput(@LogValue String batch, @LogExclude String credential) {}
+  static final class JobInput {
+    private final @LogValue String batch;
+    private final @LogExclude String credential;
+
+    @com.fasterxml.jackson.annotation.JsonCreator
+    public JobInput(
+        @com.fasterxml.jackson.annotation.JsonProperty("batch") String batch,
+        @com.fasterxml.jackson.annotation.JsonProperty("credential") String credential) {
+
+      this.batch = batch;
+      this.credential = credential;
+    }
+
+    public String batch() {
+      return batch;
+    }
+
+    public String getBatch() {
+      return batch;
+    }
+
+    public String credential() {
+      return credential;
+    }
+
+    public String getCredential() {
+      return credential;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      if (this == other) return true;
+      if (other == null || getClass() != other.getClass()) return false;
+      JobInput that = (JobInput) other;
+      return java.util.Objects.equals(batch, that.batch)
+          && java.util.Objects.equals(credential, that.credential);
+    }
+
+    @Override
+    public int hashCode() {
+      return java.util.Objects.hash(batch, credential);
+    }
+  }
 
   @Test
   void standaloneJobUsesSameFacadesAndPreservesFailureContext() {
     List<JsonNode> events = new ArrayList<>();
     ObjectMapper mapper = new ObjectMapper();
-    var writer =
+    io.github.commonlogging.internal.StructuredEventWriter writer =
         new StructuredEventWriter(
             (l, j) -> {
               try {
@@ -30,11 +72,13 @@ class JobConsumerTest {
             },
             new LogOptions("batch-worker", "test", true, true, 16, "com.company"),
             new PayloadLogSerializer(new PayloadPolicies(), 3, 5, 100, 1024));
-    var tLog = new TLog(writer);
-    var tExceptionLog =
+    io.github.commonlogging.api.TLog tLog = new TLog(writer);
+    io.github.commonlogging.api.TExceptionLog tExceptionLog =
         new TExceptionLog(writer, e -> new ErrorDetails("INTERNAL", "JOB_ERROR", false));
-    try (var job = tLog.withTrace("026ab639c21df8aa80e5789370a9db1b")) {
-      try (var operation = tLog.start("batch.process", new JobInput("batch-1", "worker-secret"))) {
+    try (io.github.commonlogging.api.TraceScope job =
+        tLog.withTrace("026ab639c21df8aa80e5789370a9db1b")) {
+      try (io.github.commonlogging.api.LogOperation operation =
+          tLog.start("batch.process", new JobInput("batch-1", "worker-secret"))) {
         try {
           throw new IllegalStateException("sensitive details");
         } catch (RuntimeException failure) {
@@ -56,7 +100,7 @@ class JobConsumerTest {
   @Test
   void standaloneExceptionAlwaysGetsTraceId() {
     List<String> output = new ArrayList<>();
-    var writer =
+    io.github.commonlogging.internal.StructuredEventWriter writer =
         new StructuredEventWriter(
             (l, j) -> output.add(j),
             new LogOptions("job", "test", true, false, 8, "com.company"),

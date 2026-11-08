@@ -1,7 +1,7 @@
 package com.example.insurance.claim;
 
-import jakarta.persistence.*;
 import java.math.BigDecimal;
+import javax.persistence.*;
 
 @Entity
 @Table(

@@ -12,11 +12,11 @@ import io.github.commonlogging.api.*;
 import io.github.commonlogging.internal.*;
 import io.github.commonlogging.payload.MaskStrategy;
 import io.github.commonlogging.spring.*;
-import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
 import java.net.SocketTimeoutException;
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
+import javax.validation.Valid;
+import javax.validation.constraints.NotBlank;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.*;
@@ -31,7 +31,6 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
 
-@org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability
 @SpringBootTest(
     classes = SpringMvcLoggingTest.App.class,
     properties = {
@@ -160,7 +159,7 @@ class SpringMvcLoggingTest {
 
   @Test
   void invalidIdIsReplacedAndUnselectedEndpointDoesNotLogPayload() throws Exception {
-    var result =
+    org.springframework.test.web.servlet.MvcResult result =
         mvc.perform(
                 post("/other")
                     .header("traceparent", "not valid id")
@@ -183,7 +182,7 @@ class SpringMvcLoggingTest {
     return sink.events.stream()
         .filter(e -> type.equals(e.path("event").asText()))
         .findFirst()
-        .orElseThrow();
+        .orElseThrow(java.util.NoSuchElementException::new);
   }
 
   @SpringBootConfiguration
@@ -232,18 +231,163 @@ class SpringMvcLoggingTest {
   }
 
   @LogPayload
-  record ClaimRequest(
-      @NotBlank @LogMask String name,
-      @LogMask(strategy = MaskStrategy.LAST_FOUR) String policy,
-      @LogExclude String token,
-      @LogValue String mode) {}
+  static final class ClaimRequest {
+    private final @NotBlank @LogMask String name;
+    private final @LogMask(strategy = MaskStrategy.LAST_FOUR) String policy;
+    private final @LogExclude String token;
+    private final @LogValue String mode;
+
+    @com.fasterxml.jackson.annotation.JsonCreator
+    public ClaimRequest(
+        @com.fasterxml.jackson.annotation.JsonProperty("name") String name,
+        @com.fasterxml.jackson.annotation.JsonProperty("policy") String policy,
+        @com.fasterxml.jackson.annotation.JsonProperty("token") String token,
+        @com.fasterxml.jackson.annotation.JsonProperty("mode") String mode) {
+
+      this.name = name;
+      this.policy = policy;
+      this.token = token;
+      this.mode = mode;
+    }
+
+    public String name() {
+      return name;
+    }
+
+    public String getName() {
+      return name;
+    }
+
+    public String policy() {
+      return policy;
+    }
+
+    public String getPolicy() {
+      return policy;
+    }
+
+    public String token() {
+      return token;
+    }
+
+    public String getToken() {
+      return token;
+    }
+
+    public String mode() {
+      return mode;
+    }
+
+    public String getMode() {
+      return mode;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      if (this == other) return true;
+      if (other == null || getClass() != other.getClass()) return false;
+      ClaimRequest that = (ClaimRequest) other;
+      return java.util.Objects.equals(name, that.name)
+          && java.util.Objects.equals(policy, that.policy)
+          && java.util.Objects.equals(token, that.token)
+          && java.util.Objects.equals(mode, that.mode);
+    }
+
+    @Override
+    public int hashCode() {
+      return java.util.Objects.hash(name, policy, token, mode);
+    }
+  }
 
   @LogPayload
-  record ClaimResponse(
-      @LogMask String name, @LogMask(strategy = MaskStrategy.LAST_FOUR) String policy) {}
+  static final class ClaimResponse {
+    private final @LogMask String name;
+    private final @LogMask(strategy = MaskStrategy.LAST_FOUR) String policy;
+
+    @com.fasterxml.jackson.annotation.JsonCreator
+    public ClaimResponse(
+        @com.fasterxml.jackson.annotation.JsonProperty("name") String name,
+        @com.fasterxml.jackson.annotation.JsonProperty("policy") String policy) {
+
+      this.name = name;
+      this.policy = policy;
+    }
+
+    public String name() {
+      return name;
+    }
+
+    public String getName() {
+      return name;
+    }
+
+    public String policy() {
+      return policy;
+    }
+
+    public String getPolicy() {
+      return policy;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      if (this == other) return true;
+      if (other == null || getClass() != other.getClass()) return false;
+      ClaimResponse that = (ClaimResponse) other;
+      return java.util.Objects.equals(name, that.name)
+          && java.util.Objects.equals(policy, that.policy);
+    }
+
+    @Override
+    public int hashCode() {
+      return java.util.Objects.hash(name, policy);
+    }
+  }
 
   @LogPayload
-  record ErrorResponse(@LogValue String code, @LogValue String traceId) {}
+  static final class ErrorResponse {
+    private final @LogValue String code;
+    private final @LogValue String traceId;
+
+    @com.fasterxml.jackson.annotation.JsonCreator
+    public ErrorResponse(
+        @com.fasterxml.jackson.annotation.JsonProperty("code") String code,
+        @com.fasterxml.jackson.annotation.JsonProperty("traceId") String traceId) {
+
+      this.code = code;
+      this.traceId = traceId;
+    }
+
+    public String code() {
+      return code;
+    }
+
+    public String getCode() {
+      return code;
+    }
+
+    public String traceId() {
+      return traceId;
+    }
+
+    public String getTraceId() {
+      return traceId;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      if (this == other) return true;
+      if (other == null || getClass() != other.getClass()) return false;
+      ErrorResponse that = (ErrorResponse) other;
+      return java.util.Objects.equals(code, that.code)
+          && java.util.Objects.equals(traceId, that.traceId);
+    }
+
+    @Override
+    public int hashCode() {
+      return java.util.Objects.hash(code, traceId);
+    }
+  }
 
   @RestController
   static class ClaimController {

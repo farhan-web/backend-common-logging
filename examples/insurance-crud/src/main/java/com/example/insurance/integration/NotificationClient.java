@@ -2,17 +2,16 @@ package com.example.insurance.integration;
 
 import com.example.insurance.integration.IntegrationDtos.*;
 import io.github.commonlogging.spring.DependencyLogging;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.*;
 
 @Component
 public class NotificationClient {
-  private final RestClient client;
+  private final RestTemplate client;
   private final DependencyLogging log;
 
   public NotificationClient(
-      RestClient.Builder builder,
+      org.springframework.boot.web.client.RestTemplateBuilder builder,
       IntegrationEndpoints endpoints,
       IntegrationProperties p,
       DependencyLogging log) {
@@ -27,14 +26,7 @@ public class NotificationClient {
         request,
         () -> {
           try {
-            Receipt response =
-                client
-                    .post()
-                    .uri("/notifications")
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(request)
-                    .retrieve()
-                    .body(Receipt.class);
+            Receipt response = client.postForObject("/notifications", request, Receipt.class);
             if (response == null || !"SENT".equals(response.result()))
               throw new IntegrationException(
                   "NOTIFICATION_INVALID_RESPONSE",

@@ -24,7 +24,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.*;
 
-@org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability
 @SpringBootTest(
     properties = {
       "insurance.demo.port=0",
@@ -93,7 +92,8 @@ class ClaimFlowIntegrationTest {
 
   @Test
   void completeFlowUsesActualHttpAndSdkWithOneTraceAndSafePayloads() throws Exception {
-    var result = submit("success-key", "1d8f545ec1831c886f060d746b82d980", request("1000.00"));
+    org.springframework.test.web.servlet.MvcResult result =
+        submit("success-key", "1d8f545ec1831c886f060d746b82d980", request("1000.00"));
     assertThat(result.getResponse().getStatus()).isEqualTo(201);
     JsonNode response = mapper.readTree(result.getResponse().getContentAsString());
     assertThat(response.path("status").asText()).isEqualTo("SUBMITTED");
@@ -107,7 +107,7 @@ class ClaimFlowIntegrationTest {
         .containsEntry("coreClaims", 1)
         .containsEntry("notifications", 1);
     @SuppressWarnings("unchecked")
-    var traces = (Map<String, String>) simulator.state().get("traces");
+    Map<String, String> traces = (Map<String, String>) simulator.state().get("traces");
     assertThat(traces)
         .containsEntry("core.verify", "1d8f545ec1831c886f060d746b82d980")
         .containsEntry("core.submit", "1d8f545ec1831c886f060d746b82d980")
@@ -118,7 +118,7 @@ class ClaimFlowIntegrationTest {
         events.stream()
             .filter(e -> "DEPENDENCY_START".equals(e.path("event").asText()))
             .map(e -> e.path("operation").asText())
-            .toList();
+            .collect(java.util.stream.Collectors.toList());
     assertThat(starts)
         .containsExactly(
             "core.policy.verify",
@@ -132,7 +132,7 @@ class ClaimFlowIntegrationTest {
                     "claim.submit".equals(e.path("operation").asText())
                         && "PROCESS_START".equals(e.path("event").asText()))
             .findFirst()
-            .orElseThrow();
+            .orElseThrow(java.util.NoSuchElementException::new);
     assertThat(events.stream().filter(e -> "DEPENDENCY_START".equals(e.path("event").asText())))
         .allSatisfy(
             e ->
@@ -142,7 +142,7 @@ class ClaimFlowIntegrationTest {
         events.stream()
             .filter(e -> "REQUEST_START".equals(e.path("event").asText()))
             .findFirst()
-            .orElseThrow();
+            .orElseThrow(java.util.NoSuchElementException::new);
     assertThat(operation.path("parentSpanId")).isEqualTo(root.path("spanId"));
     assertThat(operation.path("payload").path("policyNumber").asText()).isEqualTo("***3456");
     assertThat(operation.path("payload").has("documentBase64")).isFalse();
@@ -153,13 +153,13 @@ class ClaimFlowIntegrationTest {
                     "PROCESS_END".equals(e.path("event").asText())
                         && "claim.submit".equals(e.path("operation").asText()))
             .findFirst()
-            .orElseThrow();
+            .orElseThrow(java.util.NoSuchElementException::new);
     assertThat(claimEnd.path("payload").path("claim").path("status").asText())
         .isEqualTo("SUBMITTED");
     assertThat(claimEnd.path("payload").path("claim").path("policyNumber").asText())
         .isEqualTo("***3456");
     Map<String, String> remoteNames =
-        Map.of(
+        io.github.commonlogging.internal.Java8Collections.map(
             "core.policy.verify",
             "simulator.core.verify",
             "s3.document.put",
@@ -168,7 +168,7 @@ class ClaimFlowIntegrationTest {
             "simulator.core.submit",
             "notification.claim.send",
             "simulator.notification.send");
-    for (var mapping : remoteNames.entrySet()) {
+    for (java.util.Map.Entry<java.lang.String, java.lang.String> mapping : remoteNames.entrySet()) {
       JsonNode client =
           events.stream()
               .filter(
@@ -176,7 +176,7 @@ class ClaimFlowIntegrationTest {
                       "DEPENDENCY_START".equals(e.path("event").asText())
                           && mapping.getKey().equals(e.path("operation").asText()))
               .findFirst()
-              .orElseThrow();
+              .orElseThrow(java.util.NoSuchElementException::new);
       JsonNode server =
           events.stream()
               .filter(
@@ -184,16 +184,16 @@ class ClaimFlowIntegrationTest {
                       "PROCESS_START".equals(e.path("event").asText())
                           && mapping.getValue().equals(e.path("operation").asText()))
               .findFirst()
-              .orElseThrow();
+              .orElseThrow(java.util.NoSuchElementException::new);
       if (mapping.getKey().equals("s3.document.put")) {
         assertThat(server.path("parentSpanId")).isEqualTo(client.path("spanId"));
       } else {
         // Boot instruments the actual HTTP exchange below the logical integration scope.
-        var wire =
+        io.opentelemetry.sdk.trace.data.SpanData wire =
             exporter.getFinishedSpanItems().stream()
                 .filter(span -> span.getSpanId().equals(server.path("parentSpanId").asText()))
                 .findFirst()
-                .orElseThrow();
+                .orElseThrow(java.util.NoSuchElementException::new);
         assertThat(wire.getKind()).isEqualTo(io.opentelemetry.api.trace.SpanKind.CLIENT);
         assertThat(wire.getParentSpanId()).isEqualTo(client.path("spanId").asText());
         assertThat(wire.getTraceId()).isEqualTo(server.path("traceId").asText());
@@ -206,20 +206,14 @@ class ClaimFlowIntegrationTest {
             e ->
                 assertThat(e.path("traceId").asText())
                     .isEqualTo("1d8f545ec1831c886f060d746b82d980"));
-    var console =
+    ch.qos.logback.core.OutputStreamAppender<ch.qos.logback.classic.spi.ILoggingEvent> console =
         (ch.qos.logback.core.OutputStreamAppender<ILoggingEvent>)
-            logger
-                .getLoggerContext()
-                .getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME)
-                .getAppender("CONSOLE");
-    var startEvent =
+            logger.getLoggerContext().getLogger("common.logging").getAppender("COMMON_JSON");
+    ch.qos.logback.classic.spi.ILoggingEvent startEvent =
         appender.list.stream()
-            .filter(
-                e ->
-                    e.getKeyValuePairs().stream()
-                        .anyMatch(kv -> kv.key.equals("event") && kv.value.equals("PROCESS_START")))
+            .filter(e -> e.getFormattedMessage().contains("\"event\":\"PROCESS_START\""))
             .findFirst()
-            .orElseThrow();
+            .orElseThrow(java.util.NoSuchElementException::new);
     JsonNode encoded =
         new ObjectMapper(
                 com.fasterxml.jackson.core.JsonFactory.builder()
@@ -228,7 +222,7 @@ class ClaimFlowIntegrationTest {
             .readTree(console.getEncoder().encode(startEvent));
     assertThat(encoded.path("payload").isObject()).isTrue();
     assertThat(encoded.path("traceId").asText()).isEqualTo("1d8f545ec1831c886f060d746b82d980");
-    assertThat(encoded.path("message").asText()).isEqualTo("common.logging.event");
+    assertThat(encoded.path("event").asText()).isEqualTo("PROCESS_START");
     assertThat(encoded.toString())
         .doesNotContain(SECRET_DOCUMENT, "private diagnosis", "claimant@example.test");
     for (ILoggingEvent logEvent : appender.list) {
@@ -242,7 +236,8 @@ class ClaimFlowIntegrationTest {
       assertThat(line.path("event").isTextual()).isTrue();
     }
     assertThat(loggingHealth.backendErrors()).as("No silently rejected structured events").isZero();
-    var exported = exporter.getFinishedSpanItems();
+    java.util.List<io.opentelemetry.sdk.trace.data.SpanData> exported =
+        exporter.getFinishedSpanItems();
     assertThat(exported).isNotEmpty();
     for (JsonNode event : events) {
       assertThat(
@@ -264,7 +259,8 @@ class ClaimFlowIntegrationTest {
   @Test
   void coreRejectionCompensatesS3AndRecordsRejectedWithoutStackTrace() throws Exception {
     simulator.fault("core.submit", Fault.REJECT);
-    var result = submit("reject-key", "be79fe9e71dd296df28b84e4b3827d39", request("1000.00"));
+    org.springframework.test.web.servlet.MvcResult result =
+        submit("reject-key", "be79fe9e71dd296df28b84e4b3827d39", request("1000.00"));
     assertThat(result.getResponse().getStatus()).isEqualTo(422);
     assertThat(claims.findAll().get(0).getStatus()).isEqualTo(ClaimStatus.REJECTED);
     assertThat(simulator.state()).containsEntry("objects", 0).containsEntry("coreClaims", 0);
@@ -282,7 +278,8 @@ class ClaimFlowIntegrationTest {
   void uploadMayHaveWrittenObjectAndFailedCleanupPreservesPrimaryError() throws Exception {
     simulator.fault("s3.put", Fault.ERROR_AFTER_WRITE);
     simulator.fault("s3.delete", Fault.UNAVAILABLE);
-    var result = submit("compensation-key", "5994aa38d0f4fc2b42a256fde0184fd5", request("1000.00"));
+    org.springframework.test.web.servlet.MvcResult result =
+        submit("compensation-key", "5994aa38d0f4fc2b42a256fde0184fd5", request("1000.00"));
     assertThat(result.getResponse().getStatus()).isEqualTo(503);
     assertThat(mapper.readTree(result.getResponse().getContentAsString()).path("code").asText())
         .isEqualTo("S3_PUT_FAILURE");
@@ -300,7 +297,8 @@ class ClaimFlowIntegrationTest {
   void timeoutAfterCoreAcceptKeepsDocumentAndReconcilesWithoutDuplicateSubmission()
       throws Exception {
     simulator.fault("core.submit", Fault.TIMEOUT_AFTER_ACCEPT);
-    var first = submit("timeout-key", "4798cde0847e7b499296f32d1cd4765e", request("1000.00"));
+    org.springframework.test.web.servlet.MvcResult first =
+        submit("timeout-key", "4798cde0847e7b499296f32d1cd4765e", request("1000.00"));
     assertThat(first.getResponse().getStatus()).isEqualTo(202);
     JsonNode pending = mapper.readTree(first.getResponse().getContentAsString());
     String id = pending.path("id").asText();
@@ -309,7 +307,8 @@ class ClaimFlowIntegrationTest {
         .containsEntry("coreClaims", 1)
         .containsEntry("objects", 1)
         .containsEntry("notifications", 0);
-    var replay = submit("timeout-key", "9637fcb0a59e71952c9b71c1b7bb7d50", request("1000.00"));
+    org.springframework.test.web.servlet.MvcResult replay =
+        submit("timeout-key", "9637fcb0a59e71952c9b71c1b7bb7d50", request("1000.00"));
     assertThat(replay.getResponse().getStatus()).isEqualTo(202);
     simulator.fault("core.lookup", Fault.REJECT);
     mvc.perform(
@@ -349,7 +348,8 @@ class ClaimFlowIntegrationTest {
   @Test
   void notificationFailureDoesNotUndoAcceptedClaimAndCanBeRetriedIdempotently() throws Exception {
     simulator.fault("notification.send", Fault.UNAVAILABLE);
-    var first = submit("notification-key", "e8f53ef8e43c625797468717c2451aae", request("1000.00"));
+    org.springframework.test.web.servlet.MvcResult first =
+        submit("notification-key", "e8f53ef8e43c625797468717c2451aae", request("1000.00"));
     assertThat(first.getResponse().getStatus()).isEqualTo(201);
     JsonNode response = mapper.readTree(first.getResponse().getContentAsString());
     assertThat(response.path("status").asText()).isEqualTo("SUBMITTED");
@@ -391,7 +391,8 @@ class ClaimFlowIntegrationTest {
 
   @Test
   void inactiveLocalPolicyStopsBeforeAnyExternalCall() throws Exception {
-    Policy policy = policies.findByPolicyNumber(POLICY).orElseThrow();
+    Policy policy =
+        policies.findByPolicyNumber(POLICY).orElseThrow(java.util.NoSuchElementException::new);
     policy.update(
         new PolicyRequest(
             POLICY,
@@ -451,7 +452,7 @@ class ClaimFlowIntegrationTest {
   @Test
   void uploadTimeoutEvenWithSuccessfulDeleteRequiresVerification() throws Exception {
     simulator.fault("s3.put", Fault.TIMEOUT_AFTER_ACCEPT);
-    var result =
+    org.springframework.test.web.servlet.MvcResult result =
         submit("upload-timeout-key", "9fbd2f64a7498a8e423348002d142508", request("1000.00"));
     assertThat(result.getResponse().getStatus()).isEqualTo(504);
     assertThat(claims.findAll().get(0).getStatus()).isEqualTo(ClaimStatus.COMPENSATION_REQUIRED);
@@ -512,14 +513,12 @@ class ClaimFlowIntegrationTest {
         .map(
             e -> {
               try {
-                java.util.Map<String, Object> fields = new java.util.LinkedHashMap<>();
-                e.getKeyValuePairs().forEach(kv -> fields.put(kv.key, kv.value));
-                return mapper.<JsonNode>valueToTree(fields);
+                return mapper.readTree(e.getFormattedMessage());
               } catch (Exception ex) {
                 throw new AssertionError(ex);
               }
             })
-        .toList();
+        .collect(java.util.stream.Collectors.toList());
   }
 
   String logs() {

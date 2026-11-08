@@ -20,11 +20,26 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     this.tLog = tLog;
   }
 
+  @ExceptionHandler(javax.validation.ConstraintViolationException.class)
+  ResponseEntity<ApiError> invalidParameter(javax.validation.ConstraintViolationException error) {
+    errors.log(error);
+    return ResponseEntity.badRequest()
+        .body(
+            body(
+                "INVALID_REQUEST",
+                "Request parameter validation failed",
+                java.util.Collections.emptyList()));
+  }
+
   @ExceptionHandler(BusinessException.class)
   ResponseEntity<ApiError> business(BusinessException error) {
     errors.log(error);
     return ResponseEntity.status(error.status())
-        .body(body(error.code(), error.getMessage(), List.of()));
+        .body(
+            body(
+                error.code(),
+                error.getMessage(),
+                io.github.commonlogging.internal.Java8Collections.list()));
   }
 
   @ExceptionHandler(com.example.insurance.integration.IntegrationException.class)
@@ -35,21 +50,31 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         error.kind() == com.example.insurance.integration.IntegrationException.Kind.REJECTED
             ? "Core insurance rejected the claim"
             : "An integration could not complete the operation";
-    return ResponseEntity.status(error.status()).body(body(error.code(), message, List.of()));
+    return ResponseEntity.status(error.status())
+        .body(
+            body(error.code(), message, io.github.commonlogging.internal.Java8Collections.list()));
   }
 
   @ExceptionHandler(DataIntegrityViolationException.class)
   ResponseEntity<ApiError> conflict(DataIntegrityViolationException error) {
     errors.log(error);
     return ResponseEntity.status(HttpStatus.CONFLICT)
-        .body(body("DATA_CONFLICT", "Data conflicts with an existing policy", List.of()));
+        .body(
+            body(
+                "DATA_CONFLICT",
+                "Data conflicts with an existing policy",
+                io.github.commonlogging.internal.Java8Collections.list()));
   }
 
   @ExceptionHandler(Exception.class)
   ResponseEntity<ApiError> unexpected(Exception error) {
     errors.log(error);
-    return ResponseEntity.internalServerError()
-        .body(body("INTERNAL_ERROR", "An unexpected error occurred", List.of()));
+    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+        .body(
+            body(
+                "INTERNAL_ERROR",
+                "An unexpected error occurred",
+                io.github.commonlogging.internal.Java8Collections.list()));
   }
 
   @Override
@@ -57,19 +82,20 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
       Exception error,
       Object ignoredBody,
       HttpHeaders headers,
-      HttpStatusCode status,
+      HttpStatus status,
       WebRequest request) {
     errors.log(error);
     List<ApiError.FieldError> fields =
-        error instanceof MethodArgumentNotValidException invalid
-            ? invalid.getBindingResult().getFieldErrors().stream()
-                .map(
-                    field ->
-                        new ApiError.FieldError(
-                            field.getField(),
-                            field.getCode() == null ? "Invalid" : field.getCode()))
-                .toList()
-            : List.of();
+        error instanceof MethodArgumentNotValidException
+            ? ((MethodArgumentNotValidException) error)
+                .getBindingResult().getFieldErrors().stream()
+                    .map(
+                        field ->
+                            new ApiError.FieldError(
+                                field.getField(),
+                                field.getCode() == null ? "Invalid" : field.getCode()))
+                    .collect(java.util.stream.Collectors.toList())
+            : io.github.commonlogging.internal.Java8Collections.list();
     String code =
         error instanceof MethodArgumentNotValidException
             ? "INVALID_INPUT"

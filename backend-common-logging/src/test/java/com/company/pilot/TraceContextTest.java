@@ -39,20 +39,52 @@ class TraceContextTest {
   @AfterEach
   void cleanup() {
     assertThat(LogContext.traceId()).isNull();
-    for (String key : List.of("traceId", "spanId", "parentSpanId"))
+    for (String key :
+        io.github.commonlogging.internal.Java8Collections.list("traceId", "spanId", "parentSpanId"))
       assertThat(MDC.get(key)).isNull();
   }
 
   @LogPayload
-  record Payload(@LogMask String name) {}
+  static final class Payload {
+    private final @LogMask String name;
+
+    @com.fasterxml.jackson.annotation.JsonCreator
+    public Payload(@com.fasterxml.jackson.annotation.JsonProperty("name") String name) {
+
+      this.name = name;
+    }
+
+    public String name() {
+      return name;
+    }
+
+    public String getName() {
+      return name;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      if (this == other) return true;
+      if (other == null || getClass() != other.getClass()) return false;
+      Payload that = (Payload) other;
+      return java.util.Objects.equals(name, that.name);
+    }
+
+    @Override
+    public int hashCode() {
+      return java.util.Objects.hash(name);
+    }
+  }
 
   @Test
   void rootPayloadServiceClientAndRemoteServerFormOneTraceTree() throws Exception {
     String upstream = TraceFixtures.header("upstream");
-    TraceParent parsed = TraceParent.parse(upstream).orElseThrow();
-    var request = new MockHttpServletRequest("POST", "/claims");
+    TraceParent parsed =
+        TraceParent.parse(upstream).orElseThrow(java.util.NoSuchElementException::new);
+    org.springframework.mock.web.MockHttpServletRequest request =
+        new MockHttpServletRequest("POST", "/claims");
     request.addHeader("traceparent", upstream);
-    var response = new MockHttpServletResponse();
+    org.springframework.mock.web.MockHttpServletResponse response = new MockHttpServletResponse();
     filter.doFilter(
         request,
         response,
@@ -65,7 +97,7 @@ class TraceContextTest {
               "REQUEST_PAYLOAD",
               new Payload("secret"),
               new LogLocation("com.company.Controller", "submit"));
-          try (var service = log.start("claim.submit")) {
+          try (io.github.commonlogging.api.LogOperation service = log.start("claim.submit")) {
             assertThat(service.context().parentSpanId()).isEqualTo(root.spanId());
             new DependencyLogging(log)
                 .call(
@@ -76,10 +108,15 @@ class TraceContextTest {
                       FailureContext client = LogContext.operation();
                       assertThat(client.parentSpanId()).isEqualTo(service.context().spanId());
                       String outbound = log.traceparent();
-                      assertThat(TraceParent.parse(outbound).orElseThrow().spanId())
+                      assertThat(
+                              TraceParent.parse(outbound)
+                                  .orElseThrow(java.util.NoSuchElementException::new)
+                                  .spanId())
                           .isEqualTo(client.spanId());
-                      try (var remote = log.withTraceparent(outbound);
-                          var server = log.start("remote.receive")) {
+                      try (io.github.commonlogging.api.TraceScope remote =
+                              log.withTraceparent(outbound);
+                          io.github.commonlogging.api.LogOperation server =
+                              log.start("remote.receive")) {
                         assertThat(server.context().spanId()).isNotEqualTo(client.spanId());
                         assertThat(server.context().parentSpanId()).isEqualTo(client.spanId());
                         assertThat(server.context().spanKind()).isEqualTo("SERVER");
@@ -105,7 +142,7 @@ class TraceContextTest {
             events.stream()
                 .filter(
                     e ->
-                        Set.of(
+                        io.github.commonlogging.internal.Java8Collections.set(
                                 "REQUEST_START",
                                 "REQUEST_END",
                                 "REQUEST_PAYLOAD",
@@ -132,12 +169,12 @@ class TraceContextTest {
 
   @Test
   void normalRequestsGetDifferentTracesAndIgnoreDiagnosticTraceHeader() throws Exception {
-    var a = new MockHttpServletRequest();
+    org.springframework.mock.web.MockHttpServletRequest a = new MockHttpServletRequest();
     a.addHeader("X-Trace-ID", "static-demo");
-    var ar = new MockHttpServletResponse();
-    var b = new MockHttpServletRequest();
+    org.springframework.mock.web.MockHttpServletResponse ar = new MockHttpServletResponse();
+    org.springframework.mock.web.MockHttpServletRequest b = new MockHttpServletRequest();
     b.addHeader("X-Trace-ID", "static-demo");
-    var br = new MockHttpServletResponse();
+    org.springframework.mock.web.MockHttpServletResponse br = new MockHttpServletResponse();
     filter.doFilter(a, ar, (q, s) -> {});
     filter.doFilter(b, br, (q, s) -> {});
     assertThat(ar.getHeader("X-Trace-ID"))
@@ -161,9 +198,9 @@ class TraceContextTest {
       })
   void malformedTraceparentStartsFreshWithoutRawHeaderLog(String header) throws Exception {
     assertThat(TraceParent.parse(header)).isEmpty();
-    var request = new MockHttpServletRequest();
+    org.springframework.mock.web.MockHttpServletRequest request = new MockHttpServletRequest();
     if (header != null) request.addHeader("traceparent", header);
-    var response = new MockHttpServletResponse();
+    org.springframework.mock.web.MockHttpServletResponse response = new MockHttpServletResponse();
     filter.doFilter(request, response, (q, s) -> {});
     assertThat(TraceParent.validTraceId(response.getHeader("X-Trace-ID"))).isTrue();
     assertThat(events.get(0).has("parentSpanId")).isFalse();
@@ -171,27 +208,31 @@ class TraceContextTest {
 
   @Test
   void futureTraceparentVersionIsParsedAndForwardedAsKnownVersion() {
-    var parent =
+    io.github.commonlogging.api.TraceParent parent =
         TraceParent.parse("01-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01-extension")
-            .orElseThrow();
+            .orElseThrow(java.util.NoSuchElementException::new);
     assertThat(parent.header())
         .isEqualTo("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01");
   }
 
   @Test
   void interceptorPropagatesOnlyToAllowedHostAndUsesCurrentClientSpan() throws Exception {
-    properties.setPropagationHosts(List.of("core.test"));
-    var interceptor = new TraceClientInterceptor(properties);
-    try (var trace = log.withTraceparent(TraceFixtures.header("client"));
-        var span = log.startDependency("core", "core.call", null, null)) {
-      var allowed =
+    properties.setPropagationHosts(
+        io.github.commonlogging.internal.Java8Collections.list("core.test"));
+    io.github.commonlogging.spring.TraceClientInterceptor interceptor =
+        new TraceClientInterceptor(properties);
+    try (io.github.commonlogging.api.TraceScope trace =
+            log.withTraceparent(TraceFixtures.header("client"));
+        io.github.commonlogging.api.LogOperation span =
+            log.startDependency("core", "core.call", null, null)) {
+      org.springframework.mock.http.client.MockClientHttpRequest allowed =
           new MockClientHttpRequest(HttpMethod.GET, java.net.URI.create("https://core.test/path"));
       interceptor.intercept(
           allowed,
           new byte[0],
           (req, body) -> new MockClientHttpResponse(new byte[0], HttpStatus.OK));
       assertThat(allowed.getHeaders().getFirst("traceparent")).isEqualTo(log.traceparent());
-      var denied =
+      org.springframework.mock.http.client.MockClientHttpRequest denied =
           new MockClientHttpRequest(HttpMethod.GET, java.net.URI.create("https://other.test/path"));
       interceptor.intercept(
           denied,
@@ -208,14 +249,14 @@ class TraceContextTest {
     try {
       Runnable task;
       String traceId, spanId;
-      try (var trace = log.withTrace(null);
-          var parent = log.start("parent")) {
+      try (io.github.commonlogging.api.TraceScope trace = log.withTrace(null);
+          io.github.commonlogging.api.LogOperation parent = log.start("parent")) {
         traceId = log.traceId();
         spanId = parent.context().spanId();
         task =
             log.propagate(
                 () -> {
-                  try (var child = log.start("async.child")) {
+                  try (io.github.commonlogging.api.LogOperation child = log.start("async.child")) {
                     assertThat(child.context().parentSpanId()).isEqualTo(spanId);
                     assertThat(log.traceId()).isEqualTo(traceId);
                     assertThat(MDC.get("spanId")).isEqualTo(child.context().spanId());

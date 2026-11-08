@@ -59,7 +59,8 @@ public final class PayloadLogSerializer {
     if (value.getClass().isAnnotationPresent(LogPayload.class)
         || policies.forType(value.getClass()) != null) return true;
     if (seen.put(value, Boolean.TRUE) != null) return false;
-    if (value instanceof Collection<?> c) {
+    if (value instanceof Collection<?>) {
+      Collection<?> c = (Collection<?>) value;
       int n = 0;
       for (Object item : c) {
         if (n++ >= maxItems) break;
@@ -78,14 +79,14 @@ public final class PayloadLogSerializer {
   private JsonNode visit(Object value, int depth, State s) throws Exception {
     if (value == null) return NullNode.instance;
     if (++s.nodes > maxNodes || depth > maxDepth) return limit(s, "DEPTH_OR_NODE_LIMIT");
-    if (value instanceof String text) return text(text, s);
-    if (value instanceof Enum<?> en) return text(en.name(), s);
+    if (value instanceof String) return text((String) value, s);
+    if (value instanceof Enum<?>) return text(((Enum<?>) value).name(), s);
     if (value instanceof Character || value instanceof UUID) return text(String.valueOf(value), s);
-    if (value.getClass().getPackageName().equals("java.time")
+    if (value.getClass().getPackage().getName().equals("java.time")
         && value instanceof java.time.temporal.TemporalAccessor) return text(value.toString(), s);
-    if (value instanceof Boolean b) return BooleanNode.valueOf(b);
+    if (value instanceof Boolean) return BooleanNode.valueOf((Boolean) value);
     if (value instanceof Number
-        && Set.of(
+        && io.github.commonlogging.internal.Java8Collections.set(
                 Byte.class,
                 Short.class,
                 Integer.class,
@@ -104,7 +105,8 @@ public final class PayloadLogSerializer {
       if (value instanceof byte[]
           || value instanceof java.io.InputStream
           || value instanceof java.io.File) return skip(s, "BINARY_OR_STREAM");
-      if (value instanceof Collection<?> collection) {
+      if (value instanceof Collection<?>) {
+        Collection<?> collection = (Collection<?>) value;
         ArrayNode array = mapper.createArrayNode();
         int n = 0;
         for (Object item : collection) {
@@ -125,11 +127,13 @@ public final class PayloadLogSerializer {
         return array;
       }
       Map<String, MaskStrategy> policy = policies.forType(value.getClass());
-      if (value instanceof Map<?, ?> map) {
+      if (value instanceof Map<?, ?>) {
+        Map<?, ?> map = (Map<?, ?>) value;
         if (policy == null) return skip(s, "UNREGISTERED_MAP");
         ObjectNode node = mapper.createObjectNode();
         int n = 0;
-        for (var field : policy.entrySet()) {
+        for (java.util.Map.Entry<java.lang.String, io.github.commonlogging.payload.MaskStrategy>
+            field : policy.entrySet()) {
           if (n++ >= maxItems || s.nodes >= maxNodes) {
             limit(s, "ITEM_LIMIT");
             break;
@@ -143,7 +147,7 @@ public final class PayloadLogSerializer {
         return skip(s, "UNSUPPORTED_TYPE");
       ObjectNode node = mapper.createObjectNode();
       int n = 0;
-      var description =
+      com.fasterxml.jackson.databind.BeanDescription description =
           mapper.getSerializationConfig().introspect(mapper.constructType(value.getClass()));
       for (BeanPropertyDefinition property : description.findProperties()) {
         if (n++ >= maxItems || s.nodes >= maxNodes) {
@@ -188,8 +192,8 @@ public final class PayloadLogSerializer {
     if (strategy == MaskStrategy.FULL) return TextNode.valueOf("***");
     if (strategy == MaskStrategy.LAST_FOUR)
       return TextNode.valueOf(
-          value instanceof String t && t.length() > 4
-              ? "***" + t.substring(t.length() - 4)
+          value instanceof String && ((String) value).length() > 4
+              ? "***" + ((String) value).substring(((String) value).length() - 4)
               : "***");
     return visit(value, depth + 1, s);
   }

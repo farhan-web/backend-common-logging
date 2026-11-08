@@ -30,7 +30,9 @@ public class PolicyService {
   @LoggedOperation("policy.list")
   public PoliciesResponse list() {
     return new PoliciesResponse(
-        repository.findAll(Sort.by("id")).stream().map(PolicyResponse::from).toList());
+        repository.findAll(Sort.by("id")).stream()
+            .map(PolicyResponse::from)
+            .collect(java.util.stream.Collectors.toList()));
   }
 
   @LoggedOperation("policy.get")

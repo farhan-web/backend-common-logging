@@ -2,11 +2,11 @@ package io.github.commonlogging.spring;
 
 import io.github.commonlogging.api.*;
 import io.github.commonlogging.internal.*;
-import jakarta.servlet.*;
-import jakarta.servlet.http.*;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import javax.servlet.*;
+import javax.servlet.http.*;
 import org.springframework.web.servlet.HandlerMapping;
 
 /** One root SERVER span per logical servlet request, reused across async/error dispatches. */
@@ -30,8 +30,8 @@ public final class TraceFilter implements Filter {
   @Override
   public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
       throws IOException, ServletException {
-    var req = (HttpServletRequest) request;
-    var res = (HttpServletResponse) response;
+    javax.servlet.http.HttpServletRequest req = (HttpServletRequest) request;
+    javax.servlet.http.HttpServletResponse res = (HttpServletResponse) response;
     RequestState state = (RequestState) req.getAttribute(STATE);
     boolean initial = state == null;
     if (initial) {
@@ -39,13 +39,15 @@ public final class TraceFilter implements Filter {
       req.setAttribute(STATE, state);
     }
     RequestState current = state;
-    try (var ignored = LogContext.attach(runtime, state.span, state.root)) {
+    try (io.github.commonlogging.internal.LogContext.Scope ignored =
+        LogContext.attach(runtime, state.span, state.root)) {
       if (!res.isCommitted()) {
         res.setHeader(properties.getTraceIdHeader(), state.root.traceId());
         res.setHeader("X-Span-ID", state.root.spanId());
       }
       if (initial) {
-        var event = writer.event("REQUEST_START", state.root);
+        java.util.Map<java.lang.String, java.lang.Object> event =
+            writer.event("REQUEST_START", state.root);
         event.put("httpMethod", req.getMethod());
         event.put("spanKind", "SERVER");
         writer.emit("INFO", event);
@@ -93,8 +95,9 @@ public final class TraceFilter implements Filter {
   private void complete(
       RequestState state, HttpServletRequest request, HttpServletResponse response) {
     if (!state.done.compareAndSet(false, true)) return;
-    try (var ignored = LogContext.attach(runtime, state.span, state.root)) {
-      var e = writer.event("REQUEST_END", state.root);
+    try (io.github.commonlogging.internal.LogContext.Scope ignored =
+        LogContext.attach(runtime, state.span, state.root)) {
+      java.util.Map<java.lang.String, java.lang.Object> e = writer.event("REQUEST_END", state.root);
       int status = response.getStatus();
       if (!state.failed || status >= 400 || response.isCommitted()) e.put("httpStatus", status);
       else e.put("responseStatusKnown", false);
@@ -114,7 +117,8 @@ public final class TraceFilter implements Filter {
   }
 
   private String extract(HttpServletRequest request) {
-    var headers = Collections.list(request.getHeaders("traceparent"));
+    java.util.ArrayList<java.lang.String> headers =
+        Collections.list(request.getHeaders("traceparent"));
     return headers.size() == 1 ? headers.get(0) : null;
   }
 
@@ -127,7 +131,7 @@ public final class TraceFilter implements Filter {
     volatile boolean failed;
 
     RequestState(TracingRuntime runtime, String upstream) {
-      var active = io.opentelemetry.api.trace.Span.current();
+      io.opentelemetry.api.trace.Span active = io.opentelemetry.api.trace.Span.current();
       owned = !active.getSpanContext().isValid();
       span =
           owned

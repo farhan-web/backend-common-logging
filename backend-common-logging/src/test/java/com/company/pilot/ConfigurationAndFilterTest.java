@@ -7,8 +7,8 @@ import io.github.commonlogging.api.*;
 import io.github.commonlogging.internal.*;
 import io.github.commonlogging.payload.*;
 import io.github.commonlogging.spring.*;
-import jakarta.servlet.*;
 import java.util.*;
+import javax.servlet.*;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.FilteredClassLoader;
@@ -58,7 +58,8 @@ class ConfigurationAndFilterTest {
   void defaultClassifierDistinguishesWrappedTransportFailures() {
     runner.run(
         ctx -> {
-          var classifier = ctx.getBean(ErrorClassifier.class);
+          io.github.commonlogging.api.ErrorClassifier classifier =
+              ctx.getBean(ErrorClassifier.class);
           assertThat(
                   classifier
                       .classify(new RuntimeException(new java.net.SocketTimeoutException()))
@@ -72,11 +73,12 @@ class ConfigurationAndFilterTest {
   @Test
   void asyncCompletesOnceAndNeverRetainsThreadContext() throws Exception {
     List<JsonNode> events = new ArrayList<>();
-    var filter = filter(events);
-    var request = new MockHttpServletRequest("GET", "/private/path");
+    io.github.commonlogging.spring.TraceFilter filter = filter(events);
+    org.springframework.mock.web.MockHttpServletRequest request =
+        new MockHttpServletRequest("GET", "/private/path");
     request.setAsyncSupported(true);
     request.addHeader("traceparent", TraceFixtures.header("f4fa978fb84c29446417377aaeb6de68"));
-    var response = new MockHttpServletResponse();
+    org.springframework.mock.web.MockHttpServletResponse response = new MockHttpServletResponse();
     filter.doFilter(request, response, (req, res) -> req.startAsync(req, res));
     assertThat(events).hasSize(1);
     assertThat(LogContext.traceId()).isNull();
@@ -85,7 +87,10 @@ class ConfigurationAndFilterTest {
     assertThat(events.get(1).path("event").asText()).isEqualTo("REQUEST_END");
     assertThat(events.get(1).path("spanId")).isEqualTo(events.get(0).path("spanId"));
     assertThat(events.get(0).path("parentSpanId").asText())
-        .isEqualTo(TraceParent.parse(request.getHeader("traceparent")).orElseThrow().spanId());
+        .isEqualTo(
+            TraceParent.parse(request.getHeader("traceparent"))
+                .orElseThrow(java.util.NoSuchElementException::new)
+                .spanId());
     assertThat(events.get(1).path("traceId").asText())
         .isEqualTo("f4fa978fb84c29446417377aaeb6de68");
     request.setDispatcherType(DispatcherType.ERROR);
@@ -98,11 +103,11 @@ class ConfigurationAndFilterTest {
   @Test
   void escapedFilterExceptionIsFailedWithoutClaimingDefault200WasFinal() throws Exception {
     List<JsonNode> events = new ArrayList<>();
-    var filter = filter(events);
-    var request = new MockHttpServletRequest();
+    io.github.commonlogging.spring.TraceFilter filter = filter(events);
+    org.springframework.mock.web.MockHttpServletRequest request = new MockHttpServletRequest();
     request.addHeader("traceparent", "one");
     request.addHeader("traceparent", "two");
-    var response = new MockHttpServletResponse();
+    org.springframework.mock.web.MockHttpServletResponse response = new MockHttpServletResponse();
     ServletException original = new ServletException("sensitive");
     assertThatThrownBy(
             () ->
@@ -121,8 +126,8 @@ class ConfigurationAndFilterTest {
 
   TraceFilter filter(List<JsonNode> events) {
     ObjectMapper mapper = new ObjectMapper();
-    var p = new LoggingProperties();
-    var w =
+    io.github.commonlogging.spring.LoggingProperties p = new LoggingProperties();
+    io.github.commonlogging.internal.StructuredEventWriter w =
         new StructuredEventWriter(
             (l, j) -> {
               try {

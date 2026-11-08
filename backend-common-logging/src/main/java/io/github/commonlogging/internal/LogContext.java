@@ -51,31 +51,6 @@ public final class LogContext {
   public static SpanScope start(
       TracingRuntime runtime, String name, String kind, LogLocation location, String dependency) {
     String parent = parentSpanId();
-    if ("INTERNAL".equals(kind)
-        && runtime.observations() != null
-        && !runtime.observations().isNoop()) {
-      var observation = io.micrometer.observation.Observation.start(name, runtime.observations());
-      var observationScope = observation.openScope();
-      Span span = Span.current();
-      if (span.getSpanContext().isValid()) {
-        FailureContext metadata =
-            TracingRuntime.context(span, name, location, dependency, kind, parent);
-        return new SpanScope(
-            span,
-            metadata,
-            attachContext(runtime, Context.current(), metadata, false),
-            false,
-            () -> {
-              try {
-                observationScope.close();
-              } finally {
-                observation.stop();
-              }
-            });
-      }
-      observationScope.close();
-      observation.stop();
-    }
     Span span = runtime.tracer().spanBuilder(name).setSpanKind(SpanKind.valueOf(kind)).startSpan();
     FailureContext metadata =
         TracingRuntime.context(span, name, location, dependency, kind, parent);
@@ -95,7 +70,9 @@ public final class LogContext {
       TracingRuntime runtime, Context context, FailureContext operation, boolean server) {
     State previous = LOCAL.get();
     Map<String, String> old = new HashMap<>();
-    for (String key : List.of("traceId", "spanId", "parentSpanId")) old.put(key, MDC.get(key));
+    for (String key :
+        io.github.commonlogging.internal.Java8Collections.list("traceId", "spanId", "parentSpanId"))
+      old.put(key, MDC.get(key));
     io.opentelemetry.context.Scope standard = context.makeCurrent();
     IdentityHashMap<Throwable, FailureContext> failures =
         previous != null && Objects.equals(previous.trace, traceId())
@@ -192,7 +169,8 @@ public final class LogContext {
     TracingRuntime runtime = runtime(TracingRuntime.standalone());
     FailureContext operation = operation();
     return () -> {
-      try (var ignored = attachContext(runtime, standard, operation, s != null && s.server)) {
+      try (io.github.commonlogging.internal.LogContext.Scope ignored =
+          attachContext(runtime, standard, operation, s != null && s.server)) {
         task.run();
       }
     };

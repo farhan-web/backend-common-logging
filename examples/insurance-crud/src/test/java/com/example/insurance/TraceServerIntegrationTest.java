@@ -4,16 +4,14 @@ import static org.assertj.core.api.Assertions.*;
 
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
+import java.net.HttpURLConnection;
 import java.net.URI;
-import java.net.http.*;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.boot.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 
-@AutoConfigureObservability
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = {
@@ -27,42 +25,39 @@ class TraceServerIntegrationTest {
   @Autowired InMemorySpanExporter exporter;
 
   @Test
-  void actualServletServerReusesOneFrameworkSpanAndExportsTheResponseSpanId() throws Exception {
+  void actualServletServerHasOneServerSpanAndExportsTheResponseSpanId() throws Exception {
     exporter.reset();
     String trace = "4bf92f3577b34da6a3ce929d0e0e4736", upstream = "00f067aa0ba902b7";
     {
-      var client = HttpClient.newHttpClient();
-      var response =
-          client.send(
-              HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/policies"))
-                  .header("traceparent", "00-" + trace + "-" + upstream + "-01")
-                  .GET()
-                  .build(),
-              HttpResponse.BodyHandlers.ofString());
-      assertThat(response.statusCode()).isEqualTo(200);
-      assertThat(response.headers().firstValue("X-Trace-ID")).contains(trace);
-      org.awaitility.Awaitility.await()
-          .atMost(java.time.Duration.ofSeconds(5))
-          .untilAsserted(
-              () ->
-                  assertThat(
-                          exporter.getFinishedSpanItems().stream()
-                              .anyMatch(
-                                  span ->
-                                      span.getTraceId().equals(trace)
-                                          && span.getKind() == SpanKind.SERVER))
-                      .isTrue());
-      var spans =
+      HttpURLConnection response =
+          (HttpURLConnection)
+              URI.create("http://127.0.0.1:" + port + "/api/policies").toURL().openConnection();
+      response.setConnectTimeout(5000);
+      response.setReadTimeout(5000);
+      response.setRequestProperty("traceparent", "00-" + trace + "-" + upstream + "-01");
+      assertThat(response.getResponseCode()).isEqualTo(200);
+      assertThat(response.getHeaderField("X-Trace-ID")).isEqualTo(trace);
+      long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+      while (System.nanoTime() < deadline
+          && exporter.getFinishedSpanItems().stream()
+              .noneMatch(
+                  span -> span.getTraceId().equals(trace) && span.getKind() == SpanKind.SERVER))
+        Thread.sleep(10);
+      java.util.List<io.opentelemetry.sdk.trace.data.SpanData> spans =
           exporter.getFinishedSpanItems().stream()
               .filter(s -> s.getTraceId().equals(trace))
-              .toList();
-      var servers = spans.stream().filter(s -> s.getKind() == SpanKind.SERVER).toList();
+              .collect(java.util.stream.Collectors.toList());
+      java.util.List<io.opentelemetry.sdk.trace.data.SpanData> servers =
+          spans.stream()
+              .filter(s -> s.getKind() == SpanKind.SERVER)
+              .collect(java.util.stream.Collectors.toList());
       assertThat(servers).hasSize(1);
       assertThat(servers.get(0).getParentSpanId()).isEqualTo(upstream);
-      assertThat(response.headers().firstValue("X-Span-ID")).contains(servers.get(0).getSpanId());
+      assertThat(response.getHeaderField("X-Span-ID")).isEqualTo(servers.get(0).getSpanId());
       assertThat(spans.stream().filter(s -> s.getName().equals("policy.list")))
           .hasSize(1)
           .allSatisfy(s -> assertThat(s.getParentSpanId()).isEqualTo(servers.get(0).getSpanId()));
+      response.disconnect();
     }
   }
 }

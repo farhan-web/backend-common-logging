@@ -1,6 +1,6 @@
 # Plan komponen common logging
 
-> Kontrak aktif: [logging schema 3 dan panduan migrasi](../../backend-common-logging/ENTERPRISE-LOGGING.md), [OpenTelemetry trace/span](../../backend-common-logging/TRACE-CONTEXT.md). Rencana awal di bawah adalah konteks desain; perilaku aktif mengikuti kontrak tersebut.
+> Baseline aktif: [satu JAR Java 8 untuk Boot 2.4.3/2.4.4](../../backend-common-logging/JAVA8-COMPATIBILITY.md). Kontrak aktif: [logging schema 3 dan panduan migrasi](../../backend-common-logging/ENTERPRISE-LOGGING.md), [OpenTelemetry trace/span](../../backend-common-logging/TRACE-CONTEXT.md). Rencana awal di bawah adalah konteks desain; perilaku aktif mengikuti kontrak tersebut.
 
 Status: library mandiri sudah diimplementasikan di [backend-common-logging](../../backend-common-logging/README.md). Integrasi ke repository insurance kantor belum dilakukan karena source target belum tersedia. Targetnya library Java untuk Spring Boot yang membantu investigasi request dan kegagalan insurance backend. Library tetap generik, tanpa aturan bisnis insurance.
 

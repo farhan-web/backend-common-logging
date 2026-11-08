@@ -1,8 +1,8 @@
 package com.example.insurance.claim;
 
-import jakarta.validation.Valid;
-import jakarta.validation.constraints.Pattern;
 import java.net.URI;
+import javax.validation.Valid;
+import javax.validation.constraints.Pattern;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 
@@ -20,7 +20,8 @@ public class ClaimController {
       @RequestHeader("Idempotency-Key") @Pattern(regexp = "[A-Za-z0-9._-]{1,64}")
           String idempotencyKey,
       @Valid @RequestBody ClaimRequest request) {
-    var result = service.submit(idempotencyKey, request);
+    com.example.insurance.claim.ClaimSubmissionService.Submission result =
+        service.submit(idempotencyKey, request);
     ClaimResponse response = result.claim();
     boolean pending =
         response.status() == ClaimStatus.PROCESSING

@@ -50,7 +50,7 @@ public final class LoggedOperationAspect {
             new LogLocation(method.getDeclaringClass().getName(), method.getName()))) {
       try {
         Object result = point.proceed();
-        var resultContracts = new ArrayList<Method>();
+        java.util.ArrayList<java.lang.reflect.Method> resultContracts = new ArrayList<Method>();
         collectMethods(method.getDeclaringClass(), method, resultContracts, new HashSet<>());
         resultContracts.add(((MethodSignature) point.getSignature()).getMethod());
         boolean excludeResult =
@@ -84,11 +84,12 @@ public final class LoggedOperationAspect {
 
   private Object input(Method method, Method contract, Object[] arguments) {
     List<InputArgument> selected = new ArrayList<>();
-    var parameters = method.getParameters();
+    java.lang.reflect.Parameter[] parameters = method.getParameters();
     boolean explicitlyExcluded = false;
     for (int i = 0; i < arguments.length; i++) {
       Object value = arguments[i];
-      var elements = parameterContracts(method, contract, i);
+      java.util.List<java.lang.reflect.Parameter> elements =
+          parameterContracts(method, contract, i);
       if (elements.stream().anyMatch(e -> e.isAnnotationPresent(LogExclude.class))) {
         explicitlyExcluded = true;
         continue;
@@ -114,7 +115,7 @@ public final class LoggedOperationAspect {
           || approval != null
           || (value != null && payloads.canCapture(value))) {
         String name =
-            approval != null && !approval.value().isBlank()
+            approval != null && !approval.value().trim().isEmpty()
                 ? approval.value()
                 : parameters[i].getName();
         selected.add(
@@ -126,7 +127,7 @@ public final class LoggedOperationAspect {
     if (!selected.isEmpty()) return new OperationInput(selected);
     // Let the serializer emit SKIPPED for unsupported input, or CAPTURED null for an actual null.
     return explicitlyExcluded
-        ? new OperationInput(List.of())
+        ? new OperationInput(io.github.commonlogging.internal.Java8Collections.list())
         : arguments.length == 1 ? arguments[0] : arguments;
   }
 
@@ -174,17 +175,120 @@ public final class LoggedOperationAspect {
 
   private static Object masked(Object value, MaskStrategy strategy) {
     if (value == null) return null;
-    return strategy == MaskStrategy.LAST_FOUR && value instanceof String text && text.length() > 4
-        ? "***" + text.substring(text.length() - 4)
+    return strategy == MaskStrategy.LAST_FOUR
+            && value instanceof String
+            && ((String) value).length() > 4
+        ? "***" + ((String) value).substring(((String) value).length() - 4)
         : "***";
   }
 
   @LogPayload
-  private record ScalarResult(@LogValue Object value) {}
+  private static final class ScalarResult {
+    private final @LogValue Object value;
+
+    @com.fasterxml.jackson.annotation.JsonCreator
+    public ScalarResult(@com.fasterxml.jackson.annotation.JsonProperty("value") Object value) {
+
+      this.value = value;
+    }
+
+    public Object value() {
+      return value;
+    }
+
+    public Object getValue() {
+      return value;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      if (this == other) return true;
+      if (other == null || getClass() != other.getClass()) return false;
+      ScalarResult that = (ScalarResult) other;
+      return java.util.Objects.equals(value, that.value);
+    }
+
+    @Override
+    public int hashCode() {
+      return java.util.Objects.hash(value);
+    }
+  }
 
   @LogPayload
-  private record OperationInput(@LogValue List<InputArgument> arguments) {}
+  private static final class OperationInput {
+    private final @LogValue List<InputArgument> arguments;
+
+    @com.fasterxml.jackson.annotation.JsonCreator
+    public OperationInput(
+        @com.fasterxml.jackson.annotation.JsonProperty("arguments") List<InputArgument> arguments) {
+
+      this.arguments = arguments;
+    }
+
+    public List<InputArgument> arguments() {
+      return arguments;
+    }
+
+    public List<InputArgument> getArguments() {
+      return arguments;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      if (this == other) return true;
+      if (other == null || getClass() != other.getClass()) return false;
+      OperationInput that = (OperationInput) other;
+      return java.util.Objects.equals(arguments, that.arguments);
+    }
+
+    @Override
+    public int hashCode() {
+      return java.util.Objects.hash(arguments);
+    }
+  }
 
   @LogPayload
-  private record InputArgument(@LogValue String name, @LogValue Object value) {}
+  private static final class InputArgument {
+    private final @LogValue String name;
+    private final @LogValue Object value;
+
+    @com.fasterxml.jackson.annotation.JsonCreator
+    public InputArgument(
+        @com.fasterxml.jackson.annotation.JsonProperty("name") String name,
+        @com.fasterxml.jackson.annotation.JsonProperty("value") Object value) {
+
+      this.name = name;
+      this.value = value;
+    }
+
+    public String name() {
+      return name;
+    }
+
+    public String getName() {
+      return name;
+    }
+
+    public Object value() {
+      return value;
+    }
+
+    public Object getValue() {
+      return value;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      if (this == other) return true;
+      if (other == null || getClass() != other.getClass()) return false;
+      InputArgument that = (InputArgument) other;
+      return java.util.Objects.equals(name, that.name)
+          && java.util.Objects.equals(value, that.value);
+    }
+
+    @Override
+    public int hashCode() {
+      return java.util.Objects.hash(name, value);
+    }
+  }
 }

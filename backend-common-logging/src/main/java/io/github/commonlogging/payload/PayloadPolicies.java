@@ -8,7 +8,9 @@ public final class PayloadPolicies {
   private final Map<Class<?>, Map<String, MaskStrategy>> policies = new ConcurrentHashMap<>();
 
   public void register(Class<?> type, Map<String, MaskStrategy> fields) {
-    policies.put(Objects.requireNonNull(type), Map.copyOf(fields));
+    policies.put(
+        Objects.requireNonNull(type),
+        io.github.commonlogging.internal.Java8Collections.copyMap(fields));
   }
 
   public Map<String, MaskStrategy> forType(Class<?> type) {

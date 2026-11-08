@@ -16,20 +16,9 @@ import java.util.*;
  */
 public final class TracingRuntime {
   private final OpenTelemetry telemetry;
-  private final io.micrometer.observation.ObservationRegistry observations;
 
   public TracingRuntime(OpenTelemetry telemetry) {
-    this(telemetry, null);
-  }
-
-  public TracingRuntime(
-      OpenTelemetry telemetry, io.micrometer.observation.ObservationRegistry observations) {
     this.telemetry = Objects.requireNonNull(telemetry);
-    this.observations = observations;
-  }
-
-  public io.micrometer.observation.ObservationRegistry observations() {
-    return observations;
   }
 
   public io.opentelemetry.api.trace.Tracer tracer() {
@@ -41,7 +30,10 @@ public final class TracingRuntime {
   }
 
   public Context extract(String header) {
-    Map<String, String> carrier = header == null ? Map.of() : Map.of("traceparent", header);
+    Map<String, String> carrier =
+        header == null
+            ? io.github.commonlogging.internal.Java8Collections.map()
+            : io.github.commonlogging.internal.Java8Collections.map("traceparent", header);
     return W3CTraceContextPropagator.getInstance()
         .extract(
             Context.root(),
@@ -87,8 +79,8 @@ public final class TracingRuntime {
       String kind,
       String fallbackParent) {
     String parent = fallbackParent;
-    if (span instanceof ReadableSpan readable && readable.getParentSpanContext().isValid())
-      parent = readable.getParentSpanContext().getSpanId();
+    if (span instanceof ReadableSpan && ((ReadableSpan) span).getParentSpanContext().isValid())
+      parent = ((ReadableSpan) span).getParentSpanContext().getSpanId();
     SpanContext c = span.getSpanContext();
     return new FailureContext(
         operation, c.getSpanId(), parent, location, c.getTraceId(), dependency, kind);
